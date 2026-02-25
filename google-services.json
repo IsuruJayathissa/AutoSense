@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "518989474192",
+    "project_id": "smartvehiclediagnostic-a285a",
+    "storage_bucket": "smartvehiclediagnostic-a285a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:518989474192:android:f345fdd5f2d7e131b2eb15",
+        "android_client_info": {
+          "package_name": "com.smartvehiclediagnostic"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAmYCqTVR4tuiZFXueNrJU4Az5Eiioy7NM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
