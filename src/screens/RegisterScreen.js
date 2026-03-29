@@ -102,7 +102,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     padding: 20,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#FFFFFF',
   },
   title: {
     fontSize: 28,
@@ -128,7 +128,7 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   button: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#8B0000',
     padding: 15,
     borderRadius: 10,
     alignItems: 'center',
@@ -141,7 +141,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   linkText: {
-    color: '#007AFF',
+    color: '#8B0000',
     fontSize: 14,
     textAlign: 'center',
   },

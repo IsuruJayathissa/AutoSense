@@ -1,153 +1,169 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TextInput,
-  TouchableOpacity, ScrollView, Alert, ActivityIndicator
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  StatusBar,
 } from 'react-native';
-import { collection, doc, setDoc, getDoc, query, where, getDocs } from 'firebase/firestore';
-import { signInAnonymously } from 'firebase/auth';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../config/firebase';
+import { signInAnonymously } from 'firebase/auth';
+import { 
+  doc, 
+  setDoc, 
+  getDoc, 
+  collection,
+  query,
+  where,
+  getDocs 
+} from 'firebase/firestore';
+
+const { width } = Dimensions.get('window');
 
 export default function VehicleAuthScreen({ navigation }) {
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
-  
-  const [vehicleData, setVehicleData] = useState({
-    vehicleNumber: '',
-    brand: '',
-    model: '',
-    year: '',
-    engineType: 'Petrol',
-  });
 
-  const brands = ['Toyota', 'Honda', 'Nissan', 'Suzuki', 'Mitsubishi', 'Other'];
-  const engineTypes = ['Petrol', 'Diesel', 'Hybrid', 'Electric'];
+  // Form data
+  const [vehicleNumber, setVehicleNumber] = useState('');
+  const [password, setPassword] = useState('');
+  const [brand, setBrand] = useState('');
+  const [model, setModel] = useState('');
+  const [year, setYear] = useState('');
+  const [engineType, setEngineType] = useState('');
 
-  // Validate vehicle number format
+  const brands = [
+    { name: 'Toyota', icon: 'car-sport' },
+    { name: 'Honda', icon: 'car' },
+    { name: 'Nissan', icon: 'car-outline' },
+    { name: 'Suzuki', icon: 'car-sport-outline' },
+    { name: 'Mitsubishi', icon: 'car' },
+    { name: 'Other', icon: 'add-circle-outline' },
+  ];
+
+  const engineTypes = [
+    { name: 'Petrol', icon: 'water', color: '#EF4444' },
+    { name: 'Diesel', icon: 'water-outline', color: '#DC2626' },
+    { name: 'Hybrid', icon: 'leaf', color: '#B91C1C' },
+    { name: 'Electric', icon: 'flash', color: '#991B1B' },
+  ];
+
+  // Validate vehicle number
   const validateVehicleNumber = (number) => {
     const regex = /^[A-Z]{2,3}-\d{4}$/;
     return regex.test(number.toUpperCase());
   };
 
-  // Handle Login
   const handleLogin = async () => {
-    if (!vehicleData.vehicleNumber || !vehicleData.model || !vehicleData.year) {
-      Alert.alert('Error', 'Please fill all fields to login');
+    if (!vehicleNumber.trim()) {
+      Alert.alert('Required', 'Please enter vehicle number');
       return;
     }
-
-    if (!validateVehicleNumber(vehicleData.vehicleNumber)) {
-      Alert.alert('Invalid Format', 'Vehicle number should be: ABC-1234 or AB-1234');
+  
+    if (!validateVehicleNumber(vehicleNumber)) {
+      Alert.alert('Invalid Format', 'Vehicle number: ABC-1234');
       return;
     }
-
+  
+    if (!password.trim()) {
+      Alert.alert('Required', 'Please enter password');
+      return;
+    }
+  
     setLoading(true);
     try {
-      // Search for vehicle in Firestore
       const vehiclesRef = collection(db, 'vehicles');
-      const q = query(
-        vehiclesRef,
-        where('vehicleNumber', '==', vehicleData.vehicleNumber.toUpperCase()),
-        where('model', '==', vehicleData.model),
-        where('year', '==', vehicleData.year)
-      );
-      
+      const q = query(vehiclesRef, where('vehicleNumber', '==', vehicleNumber.toUpperCase()));
       const querySnapshot = await getDocs(q);
-      
+  
       if (querySnapshot.empty) {
-        Alert.alert('Not Found', 'Vehicle not registered. Please register first.');
-        setIsLogin(false); // Switch to register mode
+        Alert.alert('Not Registered', 'This vehicle is not registered. Please register first.');
+        setLoading(false);
         return;
       }
-
-      // Vehicle found - Login
+  
       const vehicleDoc = querySnapshot.docs[0];
-      const vehicleInfo = vehicleDoc.data();
-
-      // Sign in anonymously (or use existing auth)
-      await signInAnonymously(auth);
-      
-      // Store vehicle ID in auth user
-      const userId = auth.currentUser.uid;
+      const vehicleData = vehicleDoc.data();
+  
+      // Verify password
+      if (vehicleData.password !== password) {
+        Alert.alert('Incorrect Password', 'The password you entered is incorrect.');
+        setLoading(false);
+        return;
+      }
+  
+      const userCredential = await signInAnonymously(auth);
+      const userId = userCredential.user.uid;
+  
       await setDoc(doc(db, 'userVehicles', userId), {
-        vehicleId: vehicleDoc.id,
-        vehicleNumber: vehicleInfo.vehicleNumber,
+        vehicleId: vehicleData.vehicleId,
+        vehicleNumber: vehicleData.vehicleNumber,
       });
-
-      Alert.alert('Success', 'Login successful!', [
-        { text: 'OK', onPress: () => navigation.replace('Home') }
-      ]);
-
+  
+      navigation.replace('Home');
+  
     } catch (error) {
-      Alert.alert('Error', error.message);
+      console.error('Login Error:', error);
+      Alert.alert('Login Error', error.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle Registration
   const handleRegister = async () => {
-    // Validation
-    if (!vehicleData.vehicleNumber || !vehicleData.brand || 
-        !vehicleData.model || !vehicleData.year) {
-      Alert.alert('Error', 'Please fill all required fields');
+    if (!vehicleNumber.trim() || !password.trim() || !brand || !model.trim() || !year.trim() || !engineType) {
+      Alert.alert('Incomplete', 'Please fill all required fields');
       return;
     }
 
-    if (!validateVehicleNumber(vehicleData.vehicleNumber)) {
-      Alert.alert('Invalid Format', 'Vehicle number should be: ABC-1234 or AB-1234');
+    if (!validateVehicleNumber(vehicleNumber)) {
+      Alert.alert('Invalid Format', 'Use format: ABC-1234');
       return;
     }
 
-    const currentYear = new Date().getFullYear();
-    const yearNum = parseInt(vehicleData.year);
-    if (yearNum < 1980 || yearNum > currentYear) {
-      Alert.alert('Invalid Year', `Year should be between 1980 and ${currentYear}`);
+    if (password.length < 6) {
+      Alert.alert('Weak Password', 'Password must be at least 6 characters');
       return;
     }
 
     setLoading(true);
     try {
-      // Check if vehicle already exists
-      const vehiclesRef = collection(db, 'vehicles');
-      const q = query(
-        vehiclesRef,
-        where('vehicleNumber', '==', vehicleData.vehicleNumber.toUpperCase())
-      );
-      const querySnapshot = await getDocs(q);
+      const userCredential = await signInAnonymously(auth);
+      const userId = userCredential.user.uid;
 
-      if (!querySnapshot.empty) {
-        Alert.alert('Already Registered', 
-          'This vehicle is already registered. Please use login.');
-        setIsLogin(true);
-        return;
-      }
-
-      // Sign in anonymously
-      await signInAnonymously(auth);
-      const userId = auth.currentUser.uid;
-
-      // Create unique vehicle ID
       const vehicleId = `VEH_${Date.now()}`;
-
-      // Save vehicle data
-      await setDoc(doc(db, 'vehicles', vehicleId), {
-        ...vehicleData,
-        vehicleNumber: vehicleData.vehicleNumber.toUpperCase(),
-        vehicleId: vehicleId,
+      const vehicleData = {
+        vehicleId,
+        vehicleNumber: vehicleNumber.toUpperCase(),
+        password,
+        brand,
+        model: model.trim(),
+        year: year.trim(),
+        engineType,
+        userId,
         registeredAt: new Date().toISOString(),
-        userId: userId,
-      });
+      };
 
-      // Link user to vehicle
+      await setDoc(doc(db, 'vehicles', vehicleId), vehicleData);
       await setDoc(doc(db, 'userVehicles', userId), {
-        vehicleId: vehicleId,
-        vehicleNumber: vehicleData.vehicleNumber.toUpperCase(),
+        vehicleId,
+        vehicleNumber: vehicleNumber.toUpperCase(),
       });
 
-      Alert.alert('Success', 'Vehicle registered successfully!', [
-        { text: 'OK', onPress: () => navigation.replace('Home') }
+      Alert.alert('Success! 🎉', 'Vehicle registered successfully!', [
+        { text: 'Continue', onPress: () => navigation.replace('Home') },
       ]);
-
+      
     } catch (error) {
       Alert.alert('Error', error.message);
     } finally {
@@ -156,311 +172,598 @@ export default function VehicleAuthScreen({ navigation }) {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerIcon}>🚗</Text>
-        <Text style={styles.headerTitle}>Smart Vehicle Diagnostic</Text>
-        <Text style={styles.headerSubtitle}>
-          {isLogin ? 'Login with your vehicle' : 'Register your vehicle'}
-        </Text>
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      
+      {/* Dark Background with Red Glow */}
+      <View style={styles.backgroundContainer}>
+        <LinearGradient
+          colors={['#FFFFFF', '#F9FAFB', '#FFFFFF']}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={styles.redGlowTop} />
+        <View style={styles.redGlowBottom} />
       </View>
 
-      {/* Toggle Login/Register */}
-      <View style={styles.toggleContainer}>
-        <TouchableOpacity
-          style={[styles.toggleButton, isLogin && styles.toggleButtonActive]}
-          onPress={() => setIsLogin(true)}
+      <SafeAreaView style={styles.safeArea}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.keyboardView}
         >
-          <Text style={[styles.toggleText, isLogin && styles.toggleTextActive]}>
-            Login
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.toggleButton, !isLogin && styles.toggleButtonActive]}
-          onPress={() => setIsLogin(false)}
-        >
-          <Text style={[styles.toggleText, !isLogin && styles.toggleTextActive]}>
-            Register
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.form}>
-        {/* Vehicle Number */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>
-            Vehicle Number <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            style={styles.input}
-            placeholder="ABC-1234 or AB-1234"
-            value={vehicleData.vehicleNumber}
-            onChangeText={(text) => 
-              setVehicleData({...vehicleData, vehicleNumber: text.toUpperCase()})
-            }
-            autoCapitalize="characters"
-            maxLength={8}
-            editable={!loading}
-          />
-          <Text style={styles.hint}>Format: ABC-1234</Text>
-        </View>
-
-        {/* Brand (Register only) */}
-        {!isLogin && (
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>
-              Brand <Text style={styles.required}>*</Text>
-            </Text>
-            <View style={styles.chipContainer}>
-              {brands.map((brand) => (
-                <TouchableOpacity
-                  key={brand}
-                  style={[
-                    styles.chip,
-                    vehicleData.brand === brand && styles.chipSelected
-                  ]}
-                  onPress={() => setVehicleData({...vehicleData, brand})}
-                  disabled={loading}
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Logo & Title */}
+            <View style={styles.headerSection}>
+              <View style={styles.logoCircle}>
+                <LinearGradient
+                  colors={['#8B0000', '#A00000']}
+                  style={styles.logoGradient}
                 >
-                  <Text style={[
-                    styles.chipText,
-                    vehicleData.brand === brand && styles.chipTextSelected
-                  ]}>
-                    {brand}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                  <Ionicons name="car-sport" size={40} color="#FFFFFF" />
+                </LinearGradient>
+              </View>
+              <Text style={styles.appTitle}>
+                Auto<Text style={styles.appTitleRed}>Sense</Text>
+              </Text>
+              <Text style={styles.appSubtitle}>Smart Vehicle Diagnostics</Text>
             </View>
-          </View>
-        )}
 
-        {/* Model */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>
-            Model <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g., Vezel, Hiace, Aqua"
-            value={vehicleData.model}
-            onChangeText={(text) => 
-              setVehicleData({...vehicleData, model: text})
-            }
-            editable={!loading}
-          />
-        </View>
-
-        {/* Year */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>
-            Year <Text style={styles.required}>*</Text>
-          </Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g., 2014"
-            value={vehicleData.year}
-            onChangeText={(text) => 
-              setVehicleData({...vehicleData, year: text})
-            }
-            keyboardType="numeric"
-            maxLength={4}
-            editable={!loading}
-          />
-        </View>
-
-        {/* Engine Type (Register only) */}
-        {!isLogin && (
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>
-              Engine Type <Text style={styles.required}>*</Text>
-            </Text>
-            <View style={styles.chipContainer}>
-              {engineTypes.map((type) => (
+            {/* Dark Glass Card */}
+            <View style={styles.glassCard}>
+              <View style={styles.cardBorderTop} />
+              
+              {/* Tab Switcher */}
+              <View style={styles.tabSwitcher}>
                 <TouchableOpacity
-                  key={type}
-                  style={[
-                    styles.chip,
-                    vehicleData.engineType === type && styles.chipSelected
-                  ]}
-                  onPress={() => 
-                    setVehicleData({...vehicleData, engineType: type})
-                  }
-                  disabled={loading}
+                  style={[styles.tabButton, isLogin && styles.tabButtonActive]}
+                  onPress={() => setIsLogin(true)}
+                  activeOpacity={0.8}
                 >
-                  <Text style={[
-                    styles.chipText,
-                    vehicleData.engineType === type && styles.chipTextSelected
-                  ]}>
-                    {type}
-                  </Text>
+                  <LinearGradient
+                    colors={isLogin ? ['#8B0000', '#A00000'] : ['transparent', 'transparent']}
+                    style={styles.tabGradient}
+                  >
+                    <Ionicons
+                      name="log-in-outline"
+                      size={20}
+                      color={isLogin ? '#FFFFFF' : '#9CA3AF'}
+                    />
+                    <Text style={[styles.tabText, isLogin && styles.tabTextActive]}>
+                      Sign In
+                    </Text>
+                  </LinearGradient>
                 </TouchableOpacity>
-              ))}
+
+                <TouchableOpacity
+                  style={[styles.tabButton, !isLogin && styles.tabButtonActive]}
+                  onPress={() => setIsLogin(false)}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={!isLogin ? ['#8B0000', '#A00000'] : ['transparent', 'transparent']}
+                    style={styles.tabGradient}
+                  >
+                    <Ionicons
+                      name="create-outline"
+                      size={20}
+                      color={!isLogin ? '#FFFFFF' : '#9CA3AF'}
+                    />
+                    <Text style={[styles.tabText, !isLogin && styles.tabTextActive]}>
+                      Register
+                    </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+
+              {/* Form Section */}
+              <View style={styles.formSection}>
+                {/* Vehicle Number */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Vehicle Number</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons name="card-outline" size={20} color="#8B0000" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      value={vehicleNumber}
+                      onChangeText={setVehicleNumber}
+                      placeholder="CAD-3379"
+                      placeholderTextColor="#9CA3AF"
+                      autoCapitalize="characters"
+                    />
+                  </View>
+                  <Text style={styles.inputHint}>Format: ABC-1234</Text>
+                </View>
+
+                {isLogin ? (
+                  <>
+                    {/* LOGIN - Password Only */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Password</Text>
+                      <View style={styles.inputWrapper}>
+                        <Ionicons name="lock-closed-outline" size={20} color="#8B0000" style={styles.inputIcon} />
+                        <TextInput
+                          style={styles.input}
+                          value={password}
+                          onChangeText={setPassword}
+                          placeholder="Enter password"
+                          placeholderTextColor="#9CA3AF"
+                          secureTextEntry={true}
+                        />
+                      </View>
+                    </View>
+
+                    {/* Login Button */}
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={handleLogin}
+                      disabled={loading}
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient
+                        colors={['#8B0000', '#A00000']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.actionGradient}
+                      >
+                        {loading ? (
+                          <ActivityIndicator color="#FFFFFF" size="small" />
+                        ) : (
+                          <>
+                            <Text style={styles.actionText}>Login</Text>
+                            <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+                          </>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+
+                    {/* Info Card */}
+                    <View style={styles.infoCard}>
+                      <Ionicons name="information-circle" size={20} color="#8B0000" />
+                      <Text style={styles.infoText}>
+                        👋 Login using your vehicle number and password
+                      </Text>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    {/* REGISTER - All Fields */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Select Brand</Text>
+                      <View style={styles.brandGrid}>
+                        {brands.map((item) => (
+                          <TouchableOpacity
+                            key={item.name}
+                            style={[
+                              styles.brandItem,
+                              brand === item.name && styles.brandItemActive,
+                            ]}
+                            onPress={() => setBrand(item.name)}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons
+                              name={item.icon}
+                              size={24}
+                              color={brand === item.name ? '#8B0000' : '#9CA3AF'}
+                            />
+                            <Text
+                              style={[
+                                styles.brandText,
+                                brand === item.name && styles.brandTextActive,
+                              ]}
+                            >
+                              {item.name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+
+                    {/* Model & Year */}
+                    <View style={styles.rowInputs}>
+                      <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
+                        <Text style={styles.inputLabel}>Model</Text>
+                        <View style={styles.inputWrapper}>
+                          <TextInput
+                            style={styles.input}
+                            value={model}
+                            onChangeText={setModel}
+                            placeholder="Vezel"
+                            placeholderTextColor="#9CA3AF"
+                          />
+                        </View>
+                      </View>
+
+                      <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
+                        <Text style={styles.inputLabel}>Year</Text>
+                        <View style={styles.inputWrapper}>
+                          <TextInput
+                            style={styles.input}
+                            value={year}
+                            onChangeText={setYear}
+                            placeholder="2014"
+                            placeholderTextColor="#9CA3AF"
+                            keyboardType="numeric"
+                            maxLength={4}
+                          />
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Engine Type */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Engine Type</Text>
+                      <View style={styles.engineGrid}>
+                        {engineTypes.map((item) => (
+                          <TouchableOpacity
+                            key={item.name}
+                            style={[
+                              styles.engineItem,
+                              engineType === item.name && styles.engineItemActive,
+                            ]}
+                            onPress={() => setEngineType(item.name)}
+                            activeOpacity={0.7}
+                          >
+                            <View
+                              style={[
+                                styles.engineIconCircle,
+                                engineType === item.name && { backgroundColor: item.color },
+                              ]}
+                            >
+                              <Ionicons
+                                name={item.icon}
+                                size={20}
+                                color={engineType === item.name ? '#FFFFFF' : item.color}
+                              />
+                            </View>
+                            <Text
+                              style={[
+                                styles.engineText,
+                                engineType === item.name && styles.engineTextActive,
+                              ]}
+                            >
+                              {item.name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+
+                    {/* Password */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Password</Text>
+                      <View style={styles.inputWrapper}>
+                        <Ionicons name="lock-closed-outline" size={20} color="#8B0000" style={styles.inputIcon} />
+                        <TextInput
+                          style={styles.input}
+                          value={password}
+                          onChangeText={setPassword}
+                          placeholder="Min 6 characters"
+                          placeholderTextColor="#9CA3AF"
+                          secureTextEntry={true}
+                        />
+                      </View>
+                      <Text style={styles.inputHint}>Must be at least 6 characters</Text>
+                    </View>
+
+                    {/* Register Button */}
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={handleRegister}
+                      disabled={loading}
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient
+                        colors={['#8B0000', '#A00000']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.actionGradient}
+                      >
+                        {loading ? (
+                          <ActivityIndicator color="#FFFFFF" size="small" />
+                        ) : (
+                          <>
+                            <Text style={styles.actionText}>Create Account</Text>
+                            <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+                          </>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+
+                    {/* Info Card */}
+                    <View style={styles.infoCard}>
+                      <Ionicons name="information-circle" size={20} color="#8B0000" />
+                      <Text style={styles.infoText}>
+                        ✨ Register your vehicle to unlock diagnostic features
+                      </Text>
+                    </View>
+                  </>
+                )}
+              </View>
             </View>
-          </View>
-        )}
 
-        {/* Submit Button */}
-        <TouchableOpacity
-          style={[styles.submitButton, loading && styles.submitButtonDisabled]}
-          onPress={isLogin ? handleLogin : handleRegister}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.submitButtonText}>
-              {isLogin ? 'Login' : 'Register Vehicle'}
+            {/* Footer */}
+            <Text style={styles.footerText}>
+              Secure • Encrypted • Private
             </Text>
-          )}
-        </TouchableOpacity>
-
-        {/* Info */}
-        <View style={styles.infoBox}>
-          <Text style={styles.infoText}>
-            {isLogin 
-              ? '🔐 Login using your vehicle number, model and year'
-              : '✨ First time? Register your vehicle to get started'}
-          </Text>
-        </View>
-      </View>
-
-      {/* Footer */}
-      <Text style={styles.footer}>
-        Smart Vehicle Diagnostic v1.0.0{'\n'}
-        Secure Vehicle-Based Authentication
-      </Text>
-    </ScrollView>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
-  header: {
-    backgroundColor: '#007AFF',
-    padding: 30,
-    paddingTop: 60,
-    alignItems: 'center',
-  },
-  headerIcon: { fontSize: 60, marginBottom: 10 },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 8,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: '#e0e0e0',
-    textAlign: 'center',
-  },
-  toggleContainer: {
-    flexDirection: 'row',
-    margin: 20,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 4,
-    elevation: 2,
-  },
-  toggleButton: {
+  container: {
     flex: 1,
-    padding: 12,
+  },
+  backgroundContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+  },
+  redGlowTop: {
+    position: 'absolute',
+    top: -100,
+    left: -50,
+    right: -50,
+    height: 300,
+    backgroundColor: '#8B0000',
+    opacity: 0.05,
+    borderRadius: 200,
+    transform: [{ scaleX: 2 }],
+  },
+  redGlowBottom: {
+    position: 'absolute',
+    bottom: -100,
+    left: -50,
+    right: -50,
+    height: 200,
+    backgroundColor: '#8B0000',
+    opacity: 0.03,
+    borderRadius: 150,
+    transform: [{ scaleX: 1.5 }],
+  },
+  safeArea: {
+    flex: 1,
+  },
+  keyboardView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 40,
+  },
+  headerSection: {
     alignItems: 'center',
-    borderRadius: 10,
+    marginBottom: 30,
   },
-  toggleButtonActive: {
-    backgroundColor: '#007AFF',
+  logoCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    overflow: 'hidden',
+    marginBottom: 16,
+    shadowColor: '#8B0000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 10,
   },
-  toggleText: {
+  logoGradient: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  appTitle: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  appTitleRed: {
+    color: '#8B0000',
+  },
+  appSubtitle: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#666',
+    color: '#6B7280',
   },
-  toggleTextActive: {
-    color: '#fff',
-  },
-  form: { padding: 20, paddingTop: 0 },
-  inputGroup: { marginBottom: 20 },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
-  required: { color: '#FF3B30' },
-  input: {
-    backgroundColor: '#fff',
-    padding: 15,
-    borderRadius: 10,
-    fontSize: 16,
+  glassCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 20,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#E5E7EB',
+    position: 'relative',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
   },
-  hint: {
+  cardBorderTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: '#8B0000',
+  },
+  tabSwitcher: {
+    flexDirection: 'row',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 16,
+    padding: 4,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  tabButton: {
+    flex: 1,
+  },
+  tabGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 8,
+  },
+  tabText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#9CA3AF',
+  },
+  tabTextActive: {
+    color: '#FFFFFF',
+  },
+  formSection: {
+    gap: 20,
+  },
+  inputGroup: {
+    gap: 8,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginLeft: 4,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+  },
+  inputIcon: {
+    marginRight: 12,
+  },
+  input: {
+    flex: 1,
+    fontSize: 16,
+    color: '#1F2937',
+    fontWeight: '500',
+  },
+  inputHint: {
     fontSize: 12,
-    color: '#999',
-    marginTop: 4,
+    color: '#9CA3AF',
+    marginLeft: 4,
   },
-  chipContainer: {
+  brandGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
   },
-  chip: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#ddd',
-  },
-  chipSelected: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
-  },
-  chipText: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  chipTextSelected: {
-    color: '#fff',
-  },
-  submitButton: {
-    backgroundColor: '#007AFF',
-    padding: 18,
+  brandItem: {
+    flex: 1,
+    minWidth: '30%',
+    backgroundColor: '#F9FAFB',
     borderRadius: 12,
+    padding: 12,
     alignItems: 'center',
-    marginTop: 20,
-    elevation: 3,
+    gap: 6,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
   },
-  submitButtonDisabled: {
-    backgroundColor: '#999',
+  brandItemActive: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#8B0000',
   },
-  submitButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
+  brandText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#9CA3AF',
   },
-  infoBox: {
-    backgroundColor: '#E3F2FD',
-    padding: 15,
-    borderRadius: 10,
-    marginTop: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: '#007AFF',
+  brandTextActive: {
+    color: '#8B0000',
+  },
+  rowInputs: {
+    flexDirection: 'row',
+  },
+  engineGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  engineItem: {
+    flex: 1,
+    minWidth: '45%',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+  },
+  engineItemActive: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#8B0000',
+  },
+  engineIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  engineText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#9CA3AF',
+  },
+  engineTextActive: {
+    color: '#8B0000',
+  },
+  actionButton: {
+    marginTop: 8,
+  },
+  actionGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    gap: 8,
+  },
+  actionText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  infoCard: {
+    flexDirection: 'row',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 12,
+    padding: 14,
+    gap: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#8B0000',
   },
   infoText: {
-    color: '#1976D2',
+    flex: 1,
     fontSize: 13,
-    lineHeight: 20,
-  },
-  footer: {
-    textAlign: 'center',
-    color: '#999',
-    fontSize: 12,
-    marginTop: 30,
-    marginBottom: 30,
+    color: '#8B0000',
     lineHeight: 18,
+  },
+  footerText: {
+    textAlign: 'center',
+    fontSize: 13,
+    color: '#666',
+    marginTop: 24,
   },
 });

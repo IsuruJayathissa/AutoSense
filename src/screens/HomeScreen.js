@@ -1,11 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet,
-  TouchableOpacity, SafeAreaView, ScrollView, ActivityIndicator
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
+  Dimensions,
+  StatusBar,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
+
+const { width } = Dimensions.get('window');
+const CARD_WIDTH = (width - 60) / 2;
 
 export default function HomeScreen({ navigation }) {
   const [vehicleData, setVehicleData] = useState(null);
@@ -17,39 +29,22 @@ export default function HomeScreen({ navigation }) {
 
   const loadVehicleData = async () => {
     try {
-      console.log('Loading vehicle data...');
-      console.log('User ID:', auth.currentUser?.uid);
-      
       const userId = auth.currentUser.uid;
       const userVehicleDoc = await getDoc(doc(db, 'userVehicles', userId));
       
-      console.log('UserVehicle exists:', userVehicleDoc.exists());
-      
       if (userVehicleDoc.exists()) {
         const vehicleId = userVehicleDoc.data().vehicleId;
-        console.log('Vehicle ID:', vehicleId);
-        
         const vehicleDoc = await getDoc(doc(db, 'vehicles', vehicleId));
-        console.log('Vehicle exists:', vehicleDoc.exists());
         
         if (vehicleDoc.exists()) {
-          const data = vehicleDoc.data();
-          console.log('Vehicle data:', data);
-          setVehicleData(data);
-        } else {
-          console.log('No vehicle document found');
+          setVehicleData(vehicleDoc.data());
         }
-      } else {
-        console.log('No userVehicle document found');
       }
     } catch (error) {
       console.error('Error loading vehicle:', error);
-      console.error('Error code:', error.code);
-      console.error('Error message:', error.message);
     } finally {
       setLoading(false);
     }
-  
   };
 
   const handleLogout = async () => {
@@ -60,306 +55,637 @@ export default function HomeScreen({ navigation }) {
     }
   };
 
-  const menuItems = [
+  const quickActions = [
     {
       id: '1',
-      icon: '📊',
-      title: 'Real-time Data',
-      subtitle: 'View live sensor data',
+      icon: 'speedometer-outline',
+      title: 'Dashboard',
+      subtitle: 'Live Data',
       screen: 'Dashboard',
-      color: '#007AFF'
+      gradient: ['#8B0000', '#A00000'], // Dark Red
     },
     {
       id: '2',
-      icon: '🔍',
-      title: 'Scan for Faults',
-      subtitle: 'Read diagnostic codes',
+      icon: 'search-outline',
+      title: 'Scan Faults',
+      subtitle: 'DTC Codes',
       screen: 'FaultCodes',
-      color: '#FF3B30'
+      gradient: ['#8B0000', '#A00000'], // Dark Red
     },
     {
       id: '3',
-      icon: '❤️',
+      icon: 'heart-outline',
       title: 'Engine Health',
-      subtitle: 'Check engine status',
+      subtitle: 'Status Check',
       screen: 'EngineHealth',
-      color: '#34C759'
+      gradient: ['#8B0000', '#A00000'], // Dark Red
     },
     {
       id: '4',
-      icon: '📜',
+      icon: 'time-outline',
       title: 'History',
-      subtitle: 'View past diagnostics',
+      subtitle: 'Past Scans',
       screen: 'History',
-      color: '#FF9500'
-    },
-    {
-      id: '5',
-      icon: '🔧',
-      title: 'Maintenance',
-      subtitle: 'Service reminders',
-      screen: 'History',
-      color: '#5856D6'
-    },
-    {
-      id: '6',
-      icon: '⚙️',
-      title: 'Settings',
-      subtitle: 'App preferences',
-      screen: 'Settings', 
-      color: '#636366'
+      gradient: ['#8B0000', '#A00000'], // Dark Red
     },
   ];
 
-  return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>🚗 Smart Vehicle Diagnostic</Text>
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
+  const secondaryActions = [
+    {
+      id: '5',
+      icon: 'analytics-outline',
+      title: 'Data Charts',
+      screen: 'DataCharts',
+      color: '#8B0000',
+    },
+    {
+      id: '6',
+      icon: 'construct-outline',
+      title: 'Maintenance',
+      screen: 'History',
+      color: '#8B0000',
+    },
+    {
+      id: '7',
+      icon: 'settings-outline',
+      title: 'Settings',
+      screen: 'Settings',
+      color: '#8B0000',
+    },
+  ];
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#8B0000" />
+        <Text style={styles.loadingText}>Loading your vehicle...</Text>
       </View>
+    );
+  }
 
-      <ScrollView style={styles.content}>
-        {/* Vehicle Info Card */}
-        {loading ? (
-          <View style={styles.welcomeCard}>
-            <ActivityIndicator size="large" color="#007AFF" />
-            <Text style={styles.loadingText}>Loading vehicle info...</Text>
-          </View>
-        ) : vehicleData ? (
-          <View style={styles.vehicleCard}>
-            <View style={styles.vehicleHeader}>
-              <Text style={styles.vehicleIcon}>🚗</Text>
-              <View style={styles.vehicleInfo}>
-                <Text style={styles.vehicleNumber}>{vehicleData.vehicleNumber}</Text>
-                <Text style={styles.vehicleModel}>
-                  {vehicleData.brand} {vehicleData.model}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.vehicleDetails}>
-              <View style={styles.detailItem}>
-                <Text style={styles.detailLabel}>Year</Text>
-                <Text style={styles.detailValue}>{vehicleData.year}</Text>
-              </View>
-              <View style={styles.detailItem}>
-                <Text style={styles.detailLabel}>Engine</Text>
-                <Text style={styles.detailValue}>{vehicleData.engineType}</Text>
-              </View>
-              <View style={styles.detailItem}>
-                <Text style={styles.detailLabel}>Status</Text>
-                <Text style={[styles.detailValue, styles.statusActive]}>● Active</Text>
-              </View>
-            </View>
-          </View>
-        ) : (
-          <View style={styles.welcomeCard}>
-            <Text style={styles.welcomeText}>👋 Welcome!</Text>
-            <Text style={styles.emailText}>Vehicle not found</Text>
-          </View>
-        )}
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-        {/* Menu Grid */}
-        <View style={styles.menuGrid}>
-          {menuItems.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={[styles.menuCard, { borderTopColor: item.color }]}
-              onPress={() => navigation.navigate(item.screen)}
-            >
-              <Text style={styles.menuIcon}>{item.icon}</Text>
-              <Text style={styles.menuTitle}>{item.title}</Text>
-              <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* OBD Connection Card */}
-        <View style={styles.statusCard}>
-          <Text style={styles.statusTitle}>🔌 OBD-II Connection</Text>
-          <Text style={styles.statusText}>Not Connected</Text>
+      <SafeAreaView style={styles.safeArea}>
+        {/* Header */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.greeting}>Welcome back 👋</Text>
+            <Text style={styles.headerTitle}>
+              Auto<Text style={styles.headerTitleRed}>Sense</Text>
+            </Text>
+          </View>
           <TouchableOpacity
-            style={styles.connectButton}
-            onPress={() => navigation.navigate('OBDConnection')}
+            style={styles.logoutButton}
+            onPress={handleLogout}
+            activeOpacity={0.8}
           >
-            <Text style={styles.connectButtonText}>Connect to Vehicle</Text>
+            <Ionicons name="log-out-outline" size={24} color="#1F2937" />
           </TouchableOpacity>
         </View>
-      </ScrollView>
-    </SafeAreaView>
+
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          {/* Vehicle Card */}
+          {vehicleData ? (
+            <View style={styles.vehicleCardContainer}>
+              <View style={styles.vehicleCard}>
+                {/* Red Accent Border */}
+                <LinearGradient
+                  colors={['#8B0000', '#A00000']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.vehicleCardBorder}
+                />
+                
+                <View style={styles.vehicleHeader}>
+                  <View style={styles.vehicleIconCircle}>
+                    <LinearGradient
+                      colors={['#1F2937', '#374151']}
+                      style={styles.vehicleIconGradient}
+                    >
+                      <Ionicons name="car-sport" size={28} color="#FFFFFF" />
+                    </LinearGradient>
+                  </View>
+                  <View style={styles.vehicleInfoSection}>
+                    <Text style={styles.vehicleNumber}>{vehicleData.vehicleNumber}</Text>
+                    <Text style={styles.vehicleModel}>
+                      {vehicleData.brand} {vehicleData.model}
+                    </Text>
+                  </View>
+                  <View style={styles.statusBadge}>
+                    <View style={styles.statusDot} />
+                    <Text style={styles.statusText}>Active</Text>
+                  </View>
+                </View>
+
+                <View style={styles.vehicleStats}>
+                  <View style={styles.statItem}>
+                    <View style={[styles.statIconCircle, { backgroundColor: '#1F293720' }]}>
+                      <Ionicons name="calendar-outline" size={18} color="#1F2937" />
+                    </View>
+                    <Text style={styles.statLabel}>Year</Text>
+                    <Text style={styles.statValue}>{vehicleData.year}</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statItem}>
+                    <View style={[styles.statIconCircle, { backgroundColor: '#EF444420' }]}>
+                      <Ionicons name="speedometer-outline" size={18} color="#EF4444" />
+                    </View>
+                    <Text style={styles.statLabel}>Engine</Text>
+                    <Text style={styles.statValue}>{vehicleData.engineType}</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statItem}>
+                    <View style={[styles.statIconCircle, { backgroundColor: '#FFF7ED' }]}>
+                      <Ionicons name="shield-checkmark-outline" size={18} color="#10B981" />
+                    </View>
+                    <Text style={styles.statLabel}>Health</Text>
+                    <Text style={styles.statValue}>Good</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.noVehicleCard}>
+              <Ionicons name="car-outline" size={48} color="#9CA3AF" />
+              <Text style={styles.noVehicleText}>No vehicle registered</Text>
+            </View>
+          )}
+
+          {/* Quick Actions Title */}
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Quick Actions</Text>
+            <Ionicons name="flash" size={20} color="#1F2937" />
+          </View>
+
+          {/* Quick Actions Grid */}
+          <View style={styles.quickActionsGrid}>
+            {quickActions.map((action) => (
+              <TouchableOpacity
+                key={action.id}
+                style={styles.actionCard}
+                onPress={() => navigation.navigate(action.screen)}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={action.gradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.actionGradient}
+                >
+                  <View style={styles.actionIconCircle}>
+                    <Ionicons name={action.icon} size={28} color="#FFFFFF" />
+                  </View>
+                  <Text style={styles.actionTitle}>{action.title}</Text>
+                  <Text style={styles.actionSubtitle}>{action.subtitle}</Text>
+                  <View style={styles.actionArrow}>
+                    <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Secondary Actions */}
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>More Options</Text>
+            <Ionicons name="apps" size={20} color="#1F2937" />
+          </View>
+
+          <View style={styles.secondaryActionsRow}>
+            {secondaryActions.map((action) => (
+              <TouchableOpacity
+                key={action.id}
+                style={styles.secondaryCard}
+                onPress={() => navigation.navigate(action.screen)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.secondaryCardContent}>
+                  <View style={[styles.secondaryIcon, { backgroundColor: action.color + '20' }]}>
+                    <Ionicons name={action.icon} size={24} color={action.color} />
+                  </View>
+                  <Text style={styles.secondaryTitle}>{action.title}</Text>
+                  <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* OBD Connection Card */}
+          <View style={styles.obdCard}>
+            <LinearGradient
+              colors={['#8B0000', '#A00000']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.obdCardBorder}
+            />
+            <View style={styles.obdHeader}>
+              <View style={styles.obdIconCircle}>
+                <Ionicons name="bluetooth-outline" size={24} color="#1F2937" />
+              </View>
+              <View style={styles.obdInfo}>
+                <Text style={styles.obdTitle}>OBD-II Connection</Text>
+                <View style={styles.obdStatus}>
+                  <View style={styles.obdStatusDot} />
+                  <Text style={styles.obdStatusText}>Not Connected</Text>
+                </View>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={styles.obdConnectButton}
+              onPress={() => navigation.navigate('OBDConnection')}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={['#8B0000', '#A00000']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.obdButtonGradient}
+              >
+                <Ionicons name="link-outline" size={20} color="#FFFFFF" />
+                <Text style={styles.obdButtonText}>Connect Device</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+
+          {/* Bottom Spacing */}
+          <View style={{ height: 30 }} />
+        </ScrollView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#FFFFFF',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  loadingText: {
+    marginTop: 16,
+    color: '#1F2937',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  safeArea: {
+    flex: 1,
   },
   header: {
-    backgroundColor: '#007AFF',
-    padding: 20,
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  greeting: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 4,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  headerTitleRed: {
+    color: '#8B0000',
   },
   logoutButton: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 5,
-  },
-  logoutText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  content: {
-    flex: 1,
-    padding: 15,
-  },
-  welcomeCard: {
-    backgroundColor: '#fff',
-    padding: 20,
-    borderRadius: 10,
-    marginBottom: 20,
-    elevation: 3,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  loadingText: {
-    marginTop: 10,
-    color: '#666',
+  scrollView: {
+    flex: 1,
   },
-  welcomeText: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#333',
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
-  emailText: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 5,
+  vehicleCardContainer: {
+    marginBottom: 24,
   },
   vehicleCard: {
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
     padding: 20,
-    borderRadius: 12,
-    marginBottom: 20,
-    elevation: 3,
-    borderLeftWidth: 5,
-    borderLeftColor: '#007AFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    position: 'relative',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  vehicleCardBorder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 4,
   },
   vehicleHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 15,
-    paddingBottom: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    marginBottom: 20,
   },
-  vehicleIcon: {
-    fontSize: 50,
-    marginRight: 15,
+  vehicleIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    overflow: 'hidden',
+    marginRight: 16,
+    shadowColor: '#1F2937',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 4,
   },
-  vehicleInfo: {
+  vehicleIconGradient: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  vehicleInfoSection: {
     flex: 1,
   },
   vehicleNumber: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#007AFF',
-    letterSpacing: 2,
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+    letterSpacing: 1,
   },
   vehicleModel: {
-    fontSize: 16,
-    color: '#666',
+    fontSize: 14,
+    color: '#6B7280',
     marginTop: 4,
   },
-  vehicleDetails: {
+  statusBadge: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  detailItem: {
-    flex: 1,
     alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#10B981',
   },
-  detailLabel: {
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+    marginRight: 6,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#10B981',
+  },
+  vehicleStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  statItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  statLabel: {
     fontSize: 11,
-    color: '#999',
+    color: '#9CA3AF',
     marginBottom: 4,
-    textTransform: 'uppercase',
   },
-  detailValue: {
+  statValue: {
     fontSize: 15,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: '700',
+    color: '#1F2937',
   },
-  statusActive: {
-    color: '#34C759',
+  statDivider: {
+    width: 1,
+    backgroundColor: '#E5E7EB',
   },
-  menuGrid: {
+  noVehicleCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 40,
+    alignItems: 'center',
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  noVehicleText: {
+    marginTop: 12,
+    color: '#6B7280',
+    fontSize: 14,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  quickActionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
+    marginBottom: 24,
   },
-  menuCard: {
-    backgroundColor: '#fff',
-    width: '48%',
+  actionCard: {
+    width: CARD_WIDTH,
+    marginBottom: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  actionGradient: {
     padding: 20,
-    borderRadius: 10,
-    marginBottom: 15,
+    minHeight: 160,
+    justifyContent: 'space-between',
+  },
+  actionIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
     alignItems: 'center',
-    elevation: 3,
-    borderTopWidth: 4,
+    marginBottom: 12,
   },
-  menuIcon: {
-    fontSize: 36,
-    marginBottom: 8,
-  },
-  menuTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
-  },
-  menuSubtitle: {
-    fontSize: 11,
-    color: '#666',
-    textAlign: 'center',
-    marginTop: 3,
-  },
-  statusCard: {
-    backgroundColor: '#fff',
-    padding: 20,
-    borderRadius: 10,
-    marginBottom: 20,
-    elevation: 3,
-  },
-  statusTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 8,
-  },
-  statusText: {
-    color: '#FF3B30',
-    marginBottom: 15,
-    fontWeight: '600',
-  },
-  connectButton: {
-    backgroundColor: '#007AFF',
-    padding: 15,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  connectButtonText: {
-    color: '#fff',
+  actionTitle: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  actionSubtitle: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    opacity: 0.95,
+  },
+  actionArrow: {
+    alignSelf: 'flex-end',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  secondaryActionsRow: {
+    marginBottom: 24,
+  },
+  secondaryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  secondaryCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+  },
+  secondaryIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  secondaryTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  obdCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    position: 'relative',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  obdCardBorder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 4,
+  },
+  obdHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  obdIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  obdInfo: {
+    flex: 1,
+  },
+  obdTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  obdStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  obdStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#8B0000',
+    marginRight: 6,
+  },
+  obdStatusText: {
+    fontSize: 13,
+    color: '#EF4444',
+    fontWeight: '500',
+  },
+  obdConnectButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  obdButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    gap: 8,
+  },
+  obdButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });

@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "SmartVehicleDiagnostic",
-    "slug": "smartvehiclediagnostic",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "android": {
-      "package": "com.smartvehiclediagnostic"
-    },
-    "plugins": []
+    "name": "AutoSense",
+    "slug": "AutoSense",
+    "icon": "./assets/logo.png",
+    "splash": {
+      "image": "./assets/splash/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#007AFF"
+    }
   }
 }
