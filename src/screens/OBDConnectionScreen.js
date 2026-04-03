@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   FlatList, ActivityIndicator, Alert, PermissionsAndroid,
@@ -12,6 +12,18 @@ import OBDService from '../services/OBDService';
 
 const manager = new BleManager();
 
+// ── VALIDATION 3: OBD-specific device name filter ──────────────────────────
+const OBD_KEYWORDS = ['elm', 'obd', 'obdii', 'vlink', 'icar', 'konnwei', 'veepeak'];
+const isOBDDevice = (name) => {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  return OBD_KEYWORDS.some(keyword => lower.includes(keyword));
+};
+
+// ── VALIDATION 5: Reconnection config ─────────────────────────────────────
+const MAX_RETRY = 3;
+const RETRY_DELAY_MS = 2000;
+
 export default function OBDConnectionScreen({ navigation }) {
   const [scanning, setScanning] = useState(false);
   const [devices, setDevices] = useState([]);
@@ -19,10 +31,13 @@ export default function OBDConnectionScreen({ navigation }) {
   const [connectedDevice, setConnectedDevice] = useState(null);
   const [status, setStatus] = useState('Ready to scan');
   const [connecting, setConnecting] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const scanTimeoutRef = useRef(null);
 
   useEffect(() => {
     return () => {
       manager.destroy();
+      if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
     };
   }, []);
 
@@ -42,10 +57,32 @@ export default function OBDConnectionScreen({ navigation }) {
     return true;
   };
 
+  // ── VALIDATION 1: Bluetooth powered on check ────────────────────────────
+  const checkBluetoothState = async () => {
+    const state = await manager.state();
+    if (state !== 'PoweredOn') {
+      Alert.alert(
+        'Bluetooth is Off',
+        'Please enable Bluetooth on your phone before scanning for OBD devices.',
+        [{ text: 'OK' }]
+      );
+      return false;
+    }
+    return true;
+  };
+
   const startScan = async () => {
+    // Validation 1: Check Bluetooth is on
+    const btOn = await checkBluetoothState();
+    if (!btOn) return;
+
+    // Existing: Check permissions
     const hasPermission = await requestPermissions();
     if (!hasPermission) {
-      Alert.alert('Permission Denied', 'Bluetooth permissions are required');
+      Alert.alert(
+        'Permission Denied',
+        'Bluetooth and Location permissions are required to scan for OBD devices. Please enable them in your phone settings.'
+      );
       return;
     }
 
@@ -54,36 +91,75 @@ export default function OBDConnectionScreen({ navigation }) {
     setStatus('Scanning for OBD devices...');
 
     manager.startDeviceScan(null, null, (error, device) => {
+      // ── VALIDATION 2: Scan error handling with Alert ───────────────────
       if (error) {
+        manager.stopDeviceScan();
         setScanning(false);
-        setStatus('Scan failed: ' + error.message);
+
+        if (error.errorCode === 600) {
+          // BLE not supported on this device
+          Alert.alert(
+            'Bluetooth Not Supported',
+            'This device does not support Bluetooth Low Energy.'
+          );
+        } else if (error.errorCode === 601) {
+          // BLE powered off mid-scan
+          Alert.alert(
+            'Bluetooth Turned Off',
+            'Bluetooth was turned off during scanning. Please re-enable it and try again.'
+          );
+        } else {
+          Alert.alert(
+            'Scan Error',
+            'Failed to scan for devices: ' + error.message + '\nPlease try again.'
+          );
+        }
+        setStatus('Scan failed — tap to retry');
         return;
       }
 
+      // ── VALIDATION 3: OBD-specific device filter ──────────────────────
       if (device && device.name) {
         setDevices(prev => {
           const exists = prev.find(d => d.id === device.id);
           if (!exists) {
-            return [...prev, device];
+            // Tag the device as confirmed OBD or unconfirmed
+            return [...prev, { ...device, isOBD: isOBDDevice(device.name) }];
           }
           return prev;
         });
       }
     });
 
-    setTimeout(() => {
+    // ── VALIDATION 4: Timeout alert when no devices found ─────────────────
+    scanTimeoutRef.current = setTimeout(() => {
       manager.stopDeviceScan();
       setScanning(false);
-      setStatus('Scan complete');
+
+      setDevices(prev => {
+        if (prev.length === 0) {
+          Alert.alert(
+            'No Devices Found',
+            'No OBD devices were detected nearby.\n\nPlease check:\n• ELM327 is plugged into the OBD-II port\n• Car ignition is ON\n• Bluetooth is enabled on your phone',
+            [
+              { text: 'Try Again', onPress: startScan },
+              { text: 'Cancel', style: 'cancel' },
+            ]
+          );
+          setStatus('No devices found — tap to retry');
+        } else {
+          setStatus(`Scan complete — ${prev.length} device(s) found`);
+        }
+        return prev;
+      });
     }, 10000);
   };
 
-  const connectToDevice = async (device) => {
+  // ── VALIDATION 5: Reconnection logic with retry ───────────────────────────
+  const connectWithRetry = async (device, attempt = 1) => {
     try {
-      manager.stopDeviceScan();
-      setScanning(false);
       setConnecting(true);
-      setStatus(`Connecting to ${device.name}...`);
+      setStatus(`Connecting to ${device.name}... (attempt ${attempt}/${MAX_RETRY})`);
 
       const success = await OBDService.connect(device.id);
 
@@ -91,17 +167,37 @@ export default function OBDConnectionScreen({ navigation }) {
         setConnectedDevice(device);
         setConnected(true);
         setConnecting(false);
+        setRetryCount(0);
         setStatus('Connected!');
       } else {
-        Alert.alert('Connection Failed', 'Could not initialize OBD-II communication. Make sure the device is an ELM327 adapter.');
-        setStatus('Connection failed');
-        setConnecting(false);
+        throw new Error('OBD-II initialisation failed');
       }
     } catch (error) {
-      Alert.alert('Connection Failed', error.message);
-      setStatus('Connection failed');
-      setConnecting(false);
+      if (attempt < MAX_RETRY) {
+        setStatus(`Connection failed — retrying in 2s... (${attempt}/${MAX_RETRY})`);
+        setTimeout(() => connectWithRetry(device, attempt + 1), RETRY_DELAY_MS);
+      } else {
+        // All retries exhausted
+        setConnecting(false);
+        setRetryCount(0);
+        setStatus('Connection failed after retries');
+        Alert.alert(
+          'Connection Failed',
+          `Could not connect to ${device.name} after ${MAX_RETRY} attempts.\n\nMake sure:\n• The device is an ELM327 adapter\n• The car ignition is ON\n• The adapter is firmly plugged in`,
+          [
+            { text: 'Try Again', onPress: () => connectToDevice(device) },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      }
     }
+  };
+
+  const connectToDevice = async (device) => {
+    manager.stopDeviceScan();
+    setScanning(false);
+    setRetryCount(0);
+    await connectWithRetry(device, 1);
   };
 
   const getSignalIcon = (rssi) => {
@@ -141,9 +237,7 @@ export default function OBDConnectionScreen({ navigation }) {
                 <Ionicons name="checkmark-circle" size={64} color="#10B981" />
               </View>
               <Text style={styles.connectedText}>Connected!</Text>
-              <Text style={styles.deviceNameText}>
-                {connectedDevice?.name}
-              </Text>
+              <Text style={styles.deviceNameText}>{connectedDevice?.name}</Text>
 
               <TouchableOpacity
                 style={styles.liveDataButton}
@@ -178,7 +272,7 @@ export default function OBDConnectionScreen({ navigation }) {
           </View>
         ) : (
           <View style={styles.content}>
-            {/* Status */}
+            {/* Status Bar */}
             <View style={styles.statusBar}>
               <View style={styles.statusLeft}>
                 <Ionicons name="bluetooth" size={20} color="#8B0000" />
@@ -220,19 +314,33 @@ export default function OBDConnectionScreen({ navigation }) {
               keyExtractor={(item) => item.id}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={styles.deviceCard}
+                  style={[
+                    styles.deviceCard,
+                    item.isOBD && styles.deviceCardHighlighted,
+                  ]}
                   onPress={() => connectToDevice(item)}
                   disabled={connecting}
                   activeOpacity={0.8}
                 >
                   <View style={styles.deviceLeft}>
-                    <View style={styles.deviceIconCircle}>
+                    <View style={[
+                      styles.deviceIconCircle,
+                      item.isOBD && { backgroundColor: '#8B000025' },
+                    ]}>
                       <Ionicons name="bluetooth" size={24} color="#8B0000" />
                     </View>
                     <View style={styles.deviceInfo}>
-                      <Text style={styles.deviceName}>
-                        {item.name || 'Unknown Device'}
-                      </Text>
+                      <View style={styles.deviceNameRow}>
+                        <Text style={styles.deviceName}>
+                          {item.name || 'Unknown Device'}
+                        </Text>
+                        {/* Validation 3: OBD badge */}
+                        {item.isOBD && (
+                          <View style={styles.obdBadge}>
+                            <Text style={styles.obdBadgeText}>OBD</Text>
+                          </View>
+                        )}
+                      </View>
                       <Text style={styles.deviceId}>{item.id}</Text>
                     </View>
                   </View>
@@ -273,30 +381,19 @@ export default function OBDConnectionScreen({ navigation }) {
             <View style={styles.instructionCard}>
               <View style={styles.instructionCardBorder} />
               <Text style={styles.instructionTitle}>Before Scanning:</Text>
-              <View style={styles.instructionRow}>
-                <View style={styles.stepNumber}>
-                  <Text style={styles.stepText}>1</Text>
+              {[
+                'Plug ELM327 into car\'s OBD-II port',
+                'Turn car ignition ON',
+                'Enable Bluetooth on your phone',
+                'Press "Scan for OBD Devices"',
+              ].map((text, i) => (
+                <View key={i} style={styles.instructionRow}>
+                  <View style={styles.stepNumber}>
+                    <Text style={styles.stepText}>{i + 1}</Text>
+                  </View>
+                  <Text style={styles.instructionText}>{text}</Text>
                 </View>
-                <Text style={styles.instructionText}>Plug ELM327 into car's OBD-II port</Text>
-              </View>
-              <View style={styles.instructionRow}>
-                <View style={styles.stepNumber}>
-                  <Text style={styles.stepText}>2</Text>
-                </View>
-                <Text style={styles.instructionText}>Turn car ignition ON</Text>
-              </View>
-              <View style={styles.instructionRow}>
-                <View style={styles.stepNumber}>
-                  <Text style={styles.stepText}>3</Text>
-                </View>
-                <Text style={styles.instructionText}>Enable Bluetooth on your phone</Text>
-              </View>
-              <View style={styles.instructionRow}>
-                <View style={styles.stepNumber}>
-                  <Text style={styles.stepText}>4</Text>
-                </View>
-                <Text style={styles.instructionText}>Press "Scan for OBD Devices"</Text>
-              </View>
+              ))}
             </View>
           </View>
         )}
@@ -319,245 +416,110 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E5E7EB',
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 40, height: 40, borderRadius: 20,
     backgroundColor: '#F3F4F6',
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: 'center', alignItems: 'center',
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
+  headerTitle: { fontSize: 20, fontWeight: '700', color: '#1F2937' },
   content: { flex: 1, padding: 20 },
 
-  // Status
   statusBar: {
-    backgroundColor: '#FFFFFF',
-    padding: 14,
-    borderRadius: 12,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderLeftWidth: 4,
-    borderLeftColor: '#8B0000',
+    backgroundColor: '#FFFFFF', padding: 14, borderRadius: 12,
+    marginBottom: 16, borderWidth: 1, borderColor: '#E5E7EB',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderLeftWidth: 4, borderLeftColor: '#8B0000',
   },
-  statusLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flex: 1,
-  },
+  statusLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
   statusText: { color: '#1F2937', fontSize: 14, fontWeight: '500' },
 
-  // Scan Button
-  scanButton: {
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 20,
-  },
+  scanButton: { borderRadius: 12, overflow: 'hidden', marginBottom: 20 },
   scanGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    gap: 10,
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', paddingVertical: 16, gap: 10,
   },
-  scanningContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  scanButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
+  scanningContent: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  scanButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
 
-  // Device Card
   deviceCard: {
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-    borderRadius: 14,
-    marginBottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    backgroundColor: '#FFFFFF', padding: 16, borderRadius: 14,
+    marginBottom: 10, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', borderWidth: 1, borderColor: '#E5E7EB',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
   },
-  deviceLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flex: 1,
+  deviceCardHighlighted: {
+    borderColor: '#8B0000', borderWidth: 1.5,
   },
+  deviceLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   deviceIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 48, height: 48, borderRadius: 24,
     backgroundColor: '#8B000015',
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: 'center', alignItems: 'center',
   },
   deviceInfo: { flex: 1 },
+  deviceNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   deviceName: { fontSize: 16, fontWeight: '600', color: '#1F2937' },
   deviceId: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
-  deviceRight: {
-    alignItems: 'flex-end',
-    gap: 4,
-  },
+  deviceRight: { alignItems: 'flex-end', gap: 4 },
   deviceRssi: { fontSize: 11, fontWeight: '500' },
 
-  // Empty
-  emptyContainer: {
-    alignItems: 'center',
-    paddingVertical: 40,
+  // OBD badge (Validation 3)
+  obdBadge: {
+    backgroundColor: '#8B0000', paddingHorizontal: 6,
+    paddingVertical: 2, borderRadius: 4,
   },
+  obdBadgeText: { fontSize: 10, fontWeight: '700', color: '#FFFFFF' },
+
+  emptyContainer: { alignItems: 'center', paddingVertical: 40 },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginTop: 16,
-    marginBottom: 8,
+    fontSize: 18, fontWeight: '700', color: '#1F2937',
+    marginTop: 16, marginBottom: 8,
   },
   emptySubtext: {
-    fontSize: 14,
-    color: '#9CA3AF',
-    textAlign: 'center',
-    lineHeight: 20,
-    paddingHorizontal: 30,
+    fontSize: 14, color: '#9CA3AF', textAlign: 'center',
+    lineHeight: 20, paddingHorizontal: 30,
   },
 
-  // Instructions
   instructionCard: {
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-    borderRadius: 14,
-    marginTop: 10,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    position: 'relative',
-    overflow: 'hidden',
+    backgroundColor: '#FFFFFF', padding: 16, borderRadius: 14,
+    marginTop: 10, borderWidth: 1, borderColor: '#E5E7EB',
+    position: 'relative', overflow: 'hidden',
   },
   instructionCardBorder: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 3,
-    backgroundColor: '#8B0000',
+    position: 'absolute', top: 0, left: 0, right: 0,
+    height: 3, backgroundColor: '#8B0000',
   },
   instructionTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 12,
+    fontSize: 15, fontWeight: '700', color: '#1F2937', marginBottom: 12,
   },
-  instructionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 10,
-  },
+  instructionRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
   stepNumber: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: '#8B0000',
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: '#8B0000', justifyContent: 'center', alignItems: 'center',
   },
-  stepText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  instructionText: {
-    fontSize: 14,
-    color: '#4B5563',
-    flex: 1,
-  },
+  stepText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
+  instructionText: { fontSize: 14, color: '#4B5563', flex: 1 },
 
-  // Connected
-  connectedContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: 20,
-  },
+  connectedContainer: { flex: 1, justifyContent: 'center', padding: 20 },
   connectedCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 30,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    position: 'relative',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
+    backgroundColor: '#FFFFFF', borderRadius: 20, padding: 30,
+    alignItems: 'center', borderWidth: 1, borderColor: '#E5E7EB',
+    position: 'relative', overflow: 'hidden',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1, shadowRadius: 12, elevation: 5,
   },
-  connectedCardBorder: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 4,
-  },
-  connectedIconCircle: {
-    marginBottom: 16,
-  },
-  connectedText: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#10B981',
-    marginBottom: 6,
-  },
-  deviceNameText: {
-    fontSize: 16,
-    color: '#6B7280',
-    marginBottom: 24,
-  },
-  liveDataButton: {
-    width: '100%',
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 12,
-  },
+  connectedCardBorder: { position: 'absolute', top: 0, left: 0, right: 0, height: 4 },
+  connectedIconCircle: { marginBottom: 16 },
+  connectedText: { fontSize: 24, fontWeight: '800', color: '#10B981', marginBottom: 6 },
+  deviceNameText: { fontSize: 16, color: '#6B7280', marginBottom: 24 },
+  liveDataButton: { width: '100%', borderRadius: 12, overflow: 'hidden', marginBottom: 12 },
   liveDataGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    gap: 10,
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', paddingVertical: 16, gap: 10,
   },
-  liveDataButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
+  liveDataButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
   disconnectButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 12,
   },
-  disconnectText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#8B0000',
-  },
+  disconnectText: { fontSize: 14, fontWeight: '600', color: '#8B0000' },
 });

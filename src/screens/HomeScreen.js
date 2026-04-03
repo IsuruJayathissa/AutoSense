@@ -62,7 +62,7 @@ export default function HomeScreen({ navigation }) {
       title: 'Dashboard',
       subtitle: 'Live Data',
       screen: 'Dashboard',
-      gradient: ['#8B0000', '#A00000'], // Dark Red
+      gradient: ['#8B0000', '#A00000'],
     },
     {
       id: '2',
@@ -70,7 +70,7 @@ export default function HomeScreen({ navigation }) {
       title: 'Scan Faults',
       subtitle: 'DTC Codes',
       screen: 'FaultCodes',
-      gradient: ['#8B0000', '#A00000'], // Dark Red
+      gradient: ['#8B0000', '#A00000'],
     },
     {
       id: '3',
@@ -78,7 +78,7 @@ export default function HomeScreen({ navigation }) {
       title: 'Engine Health',
       subtitle: 'Status Check',
       screen: 'EngineHealth',
-      gradient: ['#8B0000', '#A00000'], // Dark Red
+      gradient: ['#8B0000', '#A00000'],
     },
     {
       id: '4',
@@ -86,7 +86,7 @@ export default function HomeScreen({ navigation }) {
       title: 'History',
       subtitle: 'Past Scans',
       screen: 'History',
-      gradient: ['#8B0000', '#A00000'], // Dark Red
+      gradient: ['#8B0000', '#A00000'],
     },
   ];
 
@@ -105,8 +105,16 @@ export default function HomeScreen({ navigation }) {
       screen: 'History',
       color: '#8B0000',
     },
+    // ── NEW: Data Collection for AI model training ─────────────────────────
     {
       id: '7',
+      icon: 'server-outline',
+      title: 'Collect Training Data',
+      screen: 'DataCollection',
+      color: '#8B0000',
+    },
+    {
+      id: '8',
       icon: 'settings-outline',
       title: 'Settings',
       screen: 'Settings',
@@ -154,7 +162,6 @@ export default function HomeScreen({ navigation }) {
           {vehicleData ? (
             <View style={styles.vehicleCardContainer}>
               <View style={styles.vehicleCard}>
-                {/* Red Accent Border */}
                 <LinearGradient
                   colors={['#8B0000', '#A00000']}
                   start={{ x: 0, y: 0 }}
@@ -217,13 +224,12 @@ export default function HomeScreen({ navigation }) {
             </View>
           )}
 
-          {/* Quick Actions Title */}
+          {/* Quick Actions */}
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Quick Actions</Text>
             <Ionicons name="flash" size={20} color="#1F2937" />
           </View>
 
-          {/* Quick Actions Grid */}
           <View style={styles.quickActionsGrid}>
             {quickActions.map((action) => (
               <TouchableOpacity
@@ -251,7 +257,7 @@ export default function HomeScreen({ navigation }) {
             ))}
           </View>
 
-          {/* Secondary Actions */}
+          {/* More Options */}
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>More Options</Text>
             <Ionicons name="apps" size={20} color="#1F2937" />
@@ -270,6 +276,12 @@ export default function HomeScreen({ navigation }) {
                     <Ionicons name={action.icon} size={24} color={action.color} />
                   </View>
                   <Text style={styles.secondaryTitle}>{action.title}</Text>
+                  {/* AI badge for Data Collection */}
+                  {action.screen === 'DataCollection' && (
+                    <View style={styles.aiBadge}>
+                      <Text style={styles.aiBadgeText}>AI</Text>
+                    </View>
+                  )}
                   <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
                 </View>
               </TouchableOpacity>
@@ -313,7 +325,6 @@ export default function HomeScreen({ navigation }) {
             </TouchableOpacity>
           </View>
 
-          {/* Bottom Spacing */}
           <View style={{ height: 30 }} />
         </ScrollView>
       </SafeAreaView>
@@ -322,25 +333,13 @@ export default function HomeScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
+  container: { flex: 1, backgroundColor: '#FFFFFF' },
   loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    flex: 1, justifyContent: 'center',
+    alignItems: 'center', backgroundColor: '#FFFFFF',
   },
-  loadingText: {
-    marginTop: 16,
-    color: '#1F2937',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  safeArea: {
-    flex: 1,
-  },
+  loadingText: { marginTop: 16, color: '#1F2937', fontSize: 16, fontWeight: '600' },
+  safeArea: { flex: 1 },
   header: {
     backgroundColor: '#FFFFFF',
     flexDirection: 'row',
@@ -352,340 +351,135 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
   },
-  greeting: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 4,
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#1F2937',
-  },
-  headerTitleRed: {
-    color: '#8B0000',
-  },
+  greeting: { fontSize: 14, color: '#6B7280', marginBottom: 4 },
+  headerTitle: { fontSize: 28, fontWeight: '800', color: '#1F2937' },
+  headerTitleRed: { color: '#8B0000' },
   logoutButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 44, height: 44, borderRadius: 22,
     backgroundColor: '#F3F4F6',
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: 'center', alignItems: 'center',
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-  },
-  vehicleCardContainer: {
-    marginBottom: 24,
-  },
+  scrollView: { flex: 1 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 20 },
+  vehicleCardContainer: { marginBottom: 24 },
   vehicleCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    position: 'relative',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
+    backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20,
+    borderWidth: 1, borderColor: '#E5E7EB',
+    position: 'relative', overflow: 'hidden',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1, shadowRadius: 12, elevation: 5,
   },
-  vehicleCardBorder: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 4,
-  },
-  vehicleHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
+  vehicleCardBorder: { position: 'absolute', top: 0, left: 0, right: 0, height: 4 },
+  vehicleHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   vehicleIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    overflow: 'hidden',
-    marginRight: 16,
-    shadowColor: '#1F2937',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-    elevation: 4,
+    width: 56, height: 56, borderRadius: 28, overflow: 'hidden', marginRight: 16,
+    shadowColor: '#1F2937', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4, shadowRadius: 6, elevation: 4,
   },
-  vehicleIconGradient: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  vehicleInfoSection: {
-    flex: 1,
-  },
-  vehicleNumber: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1F2937',
-    letterSpacing: 1,
-  },
-  vehicleModel: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginTop: 4,
-  },
+  vehicleIconGradient: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
+  vehicleInfoSection: { flex: 1 },
+  vehicleNumber: { fontSize: 20, fontWeight: '700', color: '#1F2937', letterSpacing: 1 },
+  vehicleModel: { fontSize: 14, color: '#6B7280', marginTop: 4 },
   statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ECFDF5',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#10B981',
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#ECFDF5', paddingHorizontal: 12,
+    paddingVertical: 6, borderRadius: 12,
+    borderWidth: 1, borderColor: '#10B981',
   },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#10B981',
-    marginRight: 6,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#10B981',
-  },
+  statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981', marginRight: 6 },
+  statusText: { fontSize: 12, fontWeight: '600', color: '#10B981' },
   vehicleStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    flexDirection: 'row', justifyContent: 'space-around',
+    paddingTop: 16, borderTopWidth: 1, borderTopColor: '#E5E7EB',
   },
-  statItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
+  statItem: { alignItems: 'center', flex: 1 },
   statIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
+    width: 36, height: 36, borderRadius: 18,
+    justifyContent: 'center', alignItems: 'center', marginBottom: 8,
   },
-  statLabel: {
-    fontSize: 11,
-    color: '#9CA3AF',
-    marginBottom: 4,
-  },
-  statValue: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
-  statDivider: {
-    width: 1,
-    backgroundColor: '#E5E7EB',
-  },
+  statLabel: { fontSize: 11, color: '#9CA3AF', marginBottom: 4 },
+  statValue: { fontSize: 15, fontWeight: '700', color: '#1F2937' },
+  statDivider: { width: 1, backgroundColor: '#E5E7EB' },
   noVehicleCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 40,
-    alignItems: 'center',
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    backgroundColor: '#FFFFFF', borderRadius: 20, padding: 40,
+    alignItems: 'center', marginBottom: 24,
+    borderWidth: 1, borderColor: '#E5E7EB',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
   },
-  noVehicleText: {
-    marginTop: 12,
-    color: '#6B7280',
-    fontSize: 14,
-  },
+  noVehicleText: { marginTop: 12, color: '#6B7280', fontSize: 14 },
   sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', marginBottom: 16,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1F2937',
-  },
+  sectionTitle: { fontSize: 18, fontWeight: '700', color: '#1F2937' },
   quickActionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginBottom: 24,
+    flexDirection: 'row', flexWrap: 'wrap',
+    justifyContent: 'space-between', marginBottom: 24,
   },
   actionCard: {
-    width: CARD_WIDTH,
-    marginBottom: 16,
-    borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
+    width: CARD_WIDTH, marginBottom: 16,
+    borderRadius: 16, overflow: 'hidden',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15, shadowRadius: 8, elevation: 4,
   },
-  actionGradient: {
-    padding: 20,
-    minHeight: 160,
-    justifyContent: 'space-between',
-  },
+  actionGradient: { padding: 20, minHeight: 160, justifyContent: 'space-between' },
   actionIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 48, height: 48, borderRadius: 24,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'center', alignItems: 'center', marginBottom: 12,
   },
-  actionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  actionSubtitle: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    opacity: 0.95,
-  },
+  actionTitle: { fontSize: 16, fontWeight: '700', color: '#FFFFFF', marginBottom: 4 },
+  actionSubtitle: { fontSize: 12, color: '#FFFFFF', opacity: 0.95 },
   actionArrow: {
-    alignSelf: 'flex-end',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    alignSelf: 'flex-end', width: 28, height: 28, borderRadius: 14,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 8,
+    justifyContent: 'center', alignItems: 'center', marginTop: 8,
   },
-  secondaryActionsRow: {
-    marginBottom: 24,
-  },
+  secondaryActionsRow: { marginBottom: 24 },
   secondaryCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    backgroundColor: '#FFFFFF', borderRadius: 16, marginBottom: 12,
+    borderWidth: 1, borderColor: '#E5E7EB',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
   },
-  secondaryCardContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-  },
+  secondaryCardContent: { flexDirection: 'row', alignItems: 'center', padding: 16 },
   secondaryIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
+    width: 44, height: 44, borderRadius: 12,
+    justifyContent: 'center', alignItems: 'center', marginRight: 16,
   },
-  secondaryTitle: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
+  secondaryTitle: { flex: 1, fontSize: 16, fontWeight: '600', color: '#1F2937' },
+
+  // AI badge on the Data Collection row
+  aiBadge: {
+    backgroundColor: '#8B0000', paddingHorizontal: 8,
+    paddingVertical: 3, borderRadius: 6, marginRight: 8,
   },
+  aiBadgeText: { fontSize: 10, fontWeight: '700', color: '#FFFFFF' },
+
   obdCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    position: 'relative',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    backgroundColor: '#FFFFFF', borderRadius: 16, padding: 20,
+    borderWidth: 1, borderColor: '#E5E7EB',
+    position: 'relative', overflow: 'hidden',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
   },
-  obdCardBorder: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 4,
-  },
-  obdHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
+  obdCardBorder: { position: 'absolute', top: 0, left: 0, right: 0, height: 4 },
+  obdHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   obdIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 48, height: 48, borderRadius: 24,
     backgroundColor: '#F3F4F6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
+    justifyContent: 'center', alignItems: 'center', marginRight: 12,
   },
-  obdInfo: {
-    flex: 1,
-  },
-  obdTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 4,
-  },
-  obdStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  obdStatusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#8B0000',
-    marginRight: 6,
-  },
-  obdStatusText: {
-    fontSize: 13,
-    color: '#EF4444',
-    fontWeight: '500',
-  },
-  obdConnectButton: {
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
+  obdInfo: { flex: 1 },
+  obdTitle: { fontSize: 16, fontWeight: '600', color: '#1F2937', marginBottom: 4 },
+  obdStatus: { flexDirection: 'row', alignItems: 'center' },
+  obdStatusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#8B0000', marginRight: 6 },
+  obdStatusText: { fontSize: 13, color: '#EF4444', fontWeight: '500' },
+  obdConnectButton: { borderRadius: 12, overflow: 'hidden' },
   obdButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    gap: 8,
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', paddingVertical: 14, gap: 8,
   },
-  obdButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
+  obdButtonText: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
 });

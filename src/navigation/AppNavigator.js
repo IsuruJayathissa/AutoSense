@@ -16,6 +16,7 @@ import EngineHealthScreen from '../screens/EngineHealthScreen';
 import HistoryScreen from '../screens/HistoryScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import DataChartsScreen from '../screens/DataChartsScreen';
+import DataCollectionScreen from '../screens/DataCollectionScreen';
 
 const Stack = createStackNavigator();
 
@@ -38,6 +39,7 @@ export default function AppNavigator() {
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
           <>
+
             <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="OBDConnection" component={OBDConnectionScreen} />
             <Stack.Screen name="Dashboard" component={DashboardScreen} />
@@ -46,6 +48,7 @@ export default function AppNavigator() {
             <Stack.Screen name="DataCharts" component={DataChartsScreen} />
             <Stack.Screen name="History" component={HistoryScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
+            <Stack.Screen name="DataCollection" component={DataCollectionScreen} />
           </>
         ) : (
           <Stack.Screen name="VehicleAuth" component={VehicleAuthScreen} />
