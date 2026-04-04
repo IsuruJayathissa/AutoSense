@@ -10,8 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { doc, getDoc, collection, addDoc, getDocs,
          deleteDoc, updateDoc, query, where,
          serverTimestamp } from 'firebase/firestore';
-import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
+import { Share } from 'react-native';
 import { auth, db } from '../config/firebase';
 import OBDService from '../services/OBDService';
 import DataCollectorService from '../services/DataCollectorService';
@@ -48,9 +47,15 @@ export default function DataCollectionScreen({ navigation }) {
   const pollingRef = useRef(null);
   const timerRef   = useRef(null);
 
+  const [obdConnected, setObdConnected] = useState(OBDService.isConnected);
+
   useEffect(() => { loadVehicleBrand(); }, []);
   useEffect(() => { if (activeTab === 'sessions') fetchSessions(); }, [activeTab]);
   useEffect(() => () => stopAllIntervals(), []);
+  useEffect(() => {
+    const unsubscribe = OBDService.onConnectionChange(setObdConnected);
+    return unsubscribe;
+  }, []);
 
   const stopAllIntervals = () => {
     if (pollingRef.current) clearInterval(pollingRef.current);
@@ -84,16 +89,15 @@ export default function DataCollectionScreen({ navigation }) {
   };
 
   const handleStartRecording = () => {
+    if (!OBDService.isConnected) {
+      Alert.alert('Not Connected', 'Please connect to an OBD device to record sensor data.');
+      return;
+    }
     DataCollectorService.startSession();
     setIsRecording(true); setSnapshotCount(0); setElapsed(0); setSelectedLabel(null); setLiveData(null);
     timerRef.current = setInterval(() => setElapsed(p => p + 1), 1000);
     pollingRef.current = setInterval(async () => {
-      let data = OBDService.isConnected ? await OBDService.getSensorData() : {
-        rpm: Math.floor(Math.random()*3000)+800, speed: Math.floor(Math.random()*120),
-        coolantTemp: Math.floor(Math.random()*30)+75, throttle: Math.floor(Math.random()*80),
-        fuelLevel: Math.floor(Math.random()*40)+60, engineLoad: Math.floor(Math.random()*60)+20,
-        voltage: parseFloat((Math.random()*2+12).toFixed(1)),
-      };
+      const data = await OBDService.getSensorData();
       if (data) { DataCollectorService.recordSnapshot(data); setLiveData(data); setSnapshotCount(DataCollectorService.getSnapshotCount()); }
     }, 5000);
   };
@@ -169,13 +173,7 @@ export default function DataCollectionScreen({ navigation }) {
         s.max_rpm??'', s.max_coolantTemp??'', s.min_voltage??'', formatDate(s.createdAt),
       ].join(','));
       const csv = [headers.join(','), ...rows].join('\n');
-      const path = FileSystem.documentDirectory + `autosense_training_${Date.now()}.csv`;
-      await FileSystem.writeAsStringAsync(path, csv, { encoding: FileSystem.EncodingType.UTF8 });
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(path, { mimeType: 'text/csv', dialogTitle: 'Export Training Data CSV' });
-      } else {
-        Alert.alert('Saved', 'CSV saved to: ' + path);
-      }
+      await Share.share({ message: csv, title: 'AutoSense Training Data CSV' });
     } catch (e) { Alert.alert('Export Failed', e.message); }
     finally { setExporting(false); }
   };
@@ -198,8 +196,8 @@ export default function DataCollectionScreen({ navigation }) {
             <Ionicons name="arrow-back" size={24} color="#1F2937" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Data Collection</Text>
-          <View style={[styles.headerBadge, { backgroundColor: OBDService.isConnected ? '#10B981' : '#F59E0B' }]}>
-            <Text style={styles.headerBadgeText}>{OBDService.isConnected ? 'LIVE' : 'SIM'}</Text>
+          <View style={[styles.headerBadge, { backgroundColor: obdConnected ? '#10B981' : '#F59E0B' }]}>
+            <Text style={styles.headerBadgeText}>{obdConnected ? 'LIVE' : 'SIM'}</Text>
           </View>
         </View>
 

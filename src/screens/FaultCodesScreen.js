@@ -13,6 +13,7 @@ import { auth, db } from '../config/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
 export default function FaultCodesScreen({ navigation }) {
+  const [obdConnected, setObdConnected] = useState(OBDService.isConnected);
   const [faults, setFaults] = useState([]);
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState(false);
@@ -21,6 +22,8 @@ export default function FaultCodesScreen({ navigation }) {
 
   useEffect(() => {
     loadVehicleBrand();
+    const unsubscribe = OBDService.onConnectionChange(setObdConnected);
+    return unsubscribe;
   }, []);
 
   const loadVehicleBrand = async () => {
@@ -42,17 +45,7 @@ export default function FaultCodesScreen({ navigation }) {
 
   const scanFaultCodes = async () => {
     if (!OBDService.isConnected) {
-      // Use sample data when not connected
-      setScanning(true);
-      await new Promise(r => setTimeout(r, 2000));
-      const sampleCodes = ['P0301', 'P0171', 'P0420'];
-      const results = sampleCodes.map(code => {
-        const info = getCodeInfo(code, vehicleBrand);
-        return { id: code, ...info };
-      });
-      setFaults(results);
-      setScanning(false);
-      setScanned(true);
+      Alert.alert('Not Connected', 'Please connect to an OBD device to scan for fault codes.');
       return;
     }
 
@@ -128,11 +121,11 @@ export default function FaultCodesScreen({ navigation }) {
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Fault Codes</Text>
           <View style={[styles.statusBadge, {
-            backgroundColor: OBDService.isConnected ? '#10B981' : '#F59E0B'
+            backgroundColor: obdConnected ? '#10B981' : '#F59E0B'
           }]}>
             <View style={styles.statusDot} />
             <Text style={styles.statusBadgeText}>
-              {OBDService.isConnected ? 'LIVE' : 'SIM'}
+              {obdConnected ? 'LIVE' : 'SIM'}
             </Text>
           </View>
         </View>

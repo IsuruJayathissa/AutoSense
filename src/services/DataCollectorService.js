@@ -110,6 +110,7 @@ class DataCollectorService {
     this.sessionId = null;
     console.log('[DataCollector] Session discarded');
   }
+  
 
   // ── Helper: calculate averages from snapshots ─────────────────────────
   _calculateAverages(snapshots) {
@@ -131,6 +132,7 @@ class DataCollectorService {
   get recording() {
     return this.isRecording;
   }
+  
 }
 
 export default new DataCollectorService();

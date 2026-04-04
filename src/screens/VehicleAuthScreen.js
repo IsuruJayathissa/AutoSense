@@ -12,6 +12,9 @@ import {
   Alert,
   Dimensions,
   StatusBar,
+  Modal,
+  FlatList,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -30,6 +33,74 @@ import {
 
 const { width } = Dimensions.get('window');
 
+const VEHICLE_DATA = {
+  Toyota:     ['Aqua', 'Axio', 'Allion', 'Camry', 'Corolla', 'Hiace', 'Hilux', 'Land Cruiser', 'Passo', 'Premio', 'Prius', 'RAV4', 'Rush', 'Vitz'],
+  Honda:      ['Accord', 'Amaze', 'BR-V', 'City', 'Civic', 'CR-V', 'Fit', 'HR-V', 'Jazz', 'Vezel', 'WR-V'],
+  Nissan:     ['Almera', 'Dayz', 'GT-R', 'Juke', 'Kicks', 'Leaf', 'March', 'Navara', 'Note', 'Patrol', 'Sunny', 'Teana', 'X-Trail'],
+  Suzuki:     ['Alto', 'Baleno', 'Celerio', 'Dzire', 'Ertiga', 'Jimny', 'S-Cross', 'Swift', 'Vitara', 'Wagon R'],
+  Mitsubishi: ['ASX', 'Eclipse Cross', 'Lancer', 'Mirage', 'Montero', 'Outlander', 'Pajero', 'Triton'],
+  Hyundai:    ['Accent', 'Creta', 'Elantra', 'Grand i10', 'i10', 'i20', 'Ioniq', 'Kona', 'Santa Fe', 'Tucson', 'Venue'],
+  Kia:        ['Carnival', 'Cerato', 'EV6', 'Niro', 'Picanto', 'Rio', 'Seltos', 'Sorento', 'Sportage'],
+  BMW:        ['1 Series', '3 Series', '5 Series', '7 Series', 'X1', 'X3', 'X5', 'X7'],
+  Mercedes:   ['A-Class', 'C-Class', 'E-Class', 'GLA', 'GLC', 'GLE', 'S-Class'],
+  Ford:       ['EcoSport', 'Endeavour', 'Explorer', 'F-150', 'Fiesta', 'Focus', 'Mustang', 'Ranger'],
+  Other:      ['Other'],
+};
+const BRANDS       = Object.keys(VEHICLE_DATA);
+const ENGINE_TYPES = ['Petrol', 'Diesel', 'Hybrid'];
+
+function ModalDropdown({ label, value, options, onSelect, placeholder, disabled }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={styles.dropdownWrapper}>
+      <Text style={styles.inputLabel}>{label}</Text>
+      <TouchableOpacity
+        style={[styles.dropdownTrigger, disabled && styles.dropdownTriggerDisabled]}
+        onPress={() => !disabled && setOpen(true)}
+        activeOpacity={0.8}
+      >
+        <Text style={[styles.dropdownTriggerText, !value && styles.dropdownPlaceholder]}>
+          {value || placeholder}
+        </Text>
+        <Ionicons name="chevron-down" size={18} color={disabled ? '#D1D5DB' : '#8B0000'} />
+      </TouchableOpacity>
+      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+        <TouchableWithoutFeedback onPress={() => setOpen(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.modalSheet}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>{label}</Text>
+                  <TouchableOpacity onPress={() => setOpen(false)}>
+                    <Ionicons name="close" size={22} color="#6B7280" />
+                  </TouchableOpacity>
+                </View>
+                <FlatList
+                  data={options}
+                  keyExtractor={(item) => item}
+                  showsVerticalScrollIndicator={false}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={[styles.modalItem, value === item && styles.modalItemSelected]}
+                      onPress={() => { onSelect(item); setOpen(false); }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.modalItemText, value === item && styles.modalItemTextSelected]}>
+                        {item}
+                      </Text>
+                      {value === item && <Ionicons name="checkmark-circle" size={18} color="#8B0000" />}
+                    </TouchableOpacity>
+                  )}
+                />
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    </View>
+  );
+}
+
 export default function VehicleAuthScreen({ navigation }) {
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -41,22 +112,6 @@ export default function VehicleAuthScreen({ navigation }) {
   const [model, setModel] = useState('');
   const [year, setYear] = useState('');
   const [engineType, setEngineType] = useState('');
-
-  const brands = [
-    { name: 'Toyota', icon: 'car-sport' },
-    { name: 'Honda', icon: 'car' },
-    { name: 'Nissan', icon: 'car-outline' },
-    { name: 'Suzuki', icon: 'car-sport-outline' },
-    { name: 'Mitsubishi', icon: 'car' },
-    { name: 'Other', icon: 'add-circle-outline' },
-  ];
-
-  const engineTypes = [
-    { name: 'Petrol', icon: 'water', color: '#EF4444' },
-    { name: 'Diesel', icon: 'water-outline', color: '#DC2626' },
-    { name: 'Hybrid', icon: 'leaf', color: '#B91C1C' },
-    { name: 'Electric', icon: 'flash', color: '#991B1B' },
-  ];
 
   // Validate vehicle number
   const validateVehicleNumber = (number) => {
@@ -329,106 +384,46 @@ export default function VehicleAuthScreen({ navigation }) {
                 ) : (
                   <>
                     {/* REGISTER - All Fields */}
+                    <ModalDropdown
+                      label="Vehicle Brand"
+                      value={brand}
+                      options={BRANDS}
+                      onSelect={(b) => { setBrand(b); setModel(''); }}
+                      placeholder="Select brand..."
+                    />
+
+                    <ModalDropdown
+                      label="Vehicle Model"
+                      value={model}
+                      options={brand ? VEHICLE_DATA[brand] : []}
+                      onSelect={setModel}
+                      placeholder={brand ? 'Select model...' : 'Select brand first'}
+                      disabled={!brand}
+                    />
+
+                    {/* Year */}
                     <View style={styles.inputGroup}>
-                      <Text style={styles.inputLabel}>Select Brand</Text>
-                      <View style={styles.brandGrid}>
-                        {brands.map((item) => (
-                          <TouchableOpacity
-                            key={item.name}
-                            style={[
-                              styles.brandItem,
-                              brand === item.name && styles.brandItemActive,
-                            ]}
-                            onPress={() => setBrand(item.name)}
-                            activeOpacity={0.7}
-                          >
-                            <Ionicons
-                              name={item.icon}
-                              size={24}
-                              color={brand === item.name ? '#8B0000' : '#9CA3AF'}
-                            />
-                            <Text
-                              style={[
-                                styles.brandText,
-                                brand === item.name && styles.brandTextActive,
-                              ]}
-                            >
-                              {item.name}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
+                      <Text style={styles.inputLabel}>Year</Text>
+                      <View style={styles.inputWrapper}>
+                        <TextInput
+                          style={styles.input}
+                          value={year}
+                          onChangeText={setYear}
+                          placeholder="2014"
+                          placeholderTextColor="#9CA3AF"
+                          keyboardType="numeric"
+                          maxLength={4}
+                        />
                       </View>
                     </View>
 
-                    {/* Model & Year */}
-                    <View style={styles.rowInputs}>
-                      <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-                        <Text style={styles.inputLabel}>Model</Text>
-                        <View style={styles.inputWrapper}>
-                          <TextInput
-                            style={styles.input}
-                            value={model}
-                            onChangeText={setModel}
-                            placeholder="Vezel"
-                            placeholderTextColor="#9CA3AF"
-                          />
-                        </View>
-                      </View>
-
-                      <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-                        <Text style={styles.inputLabel}>Year</Text>
-                        <View style={styles.inputWrapper}>
-                          <TextInput
-                            style={styles.input}
-                            value={year}
-                            onChangeText={setYear}
-                            placeholder="2014"
-                            placeholderTextColor="#9CA3AF"
-                            keyboardType="numeric"
-                            maxLength={4}
-                          />
-                        </View>
-                      </View>
-                    </View>
-
-                    {/* Engine Type */}
-                    <View style={styles.inputGroup}>
-                      <Text style={styles.inputLabel}>Engine Type</Text>
-                      <View style={styles.engineGrid}>
-                        {engineTypes.map((item) => (
-                          <TouchableOpacity
-                            key={item.name}
-                            style={[
-                              styles.engineItem,
-                              engineType === item.name && styles.engineItemActive,
-                            ]}
-                            onPress={() => setEngineType(item.name)}
-                            activeOpacity={0.7}
-                          >
-                            <View
-                              style={[
-                                styles.engineIconCircle,
-                                engineType === item.name && { backgroundColor: item.color },
-                              ]}
-                            >
-                              <Ionicons
-                                name={item.icon}
-                                size={20}
-                                color={engineType === item.name ? '#FFFFFF' : item.color}
-                              />
-                            </View>
-                            <Text
-                              style={[
-                                styles.engineText,
-                                engineType === item.name && styles.engineTextActive,
-                              ]}
-                            >
-                              {item.name}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </View>
+                    <ModalDropdown
+                      label="Engine Type"
+                      value={engineType}
+                      options={ENGINE_TYPES}
+                      onSelect={setEngineType}
+                      placeholder="Select engine type..."
+                    />
 
                     {/* Password */}
                     <View style={styles.inputGroup}>
@@ -766,4 +761,38 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 24,
   },
+
+  // Modal Dropdown
+  dropdownWrapper: { gap: 8 },
+  dropdownTrigger: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: '#F9FAFB', borderRadius: 12,
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderWidth: 1.5, borderColor: '#E5E7EB',
+  },
+  dropdownTriggerDisabled: { opacity: 0.5 },
+  dropdownTriggerText: { fontSize: 16, color: '#1F2937', fontWeight: '500', flex: 1 },
+  dropdownPlaceholder: { color: '#9CA3AF', fontWeight: '400' },
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    paddingBottom: 34, maxHeight: '60%',
+  },
+  modalHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingVertical: 16,
+    borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
+  },
+  modalTitle: { fontSize: 16, fontWeight: '700', color: '#1F2937' },
+  modalItem: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingVertical: 15,
+    borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
+  },
+  modalItemSelected: { backgroundColor: '#FEF2F2' },
+  modalItemText: { fontSize: 15, color: '#1F2937' },
+  modalItemTextSelected: { color: '#8B0000', fontWeight: '600' },
 });

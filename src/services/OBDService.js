@@ -134,8 +134,11 @@ const parseResponse = (pid, rawData) => {
     if (
       cleaned.includes('NODATA') || cleaned.includes('ERROR') ||
       cleaned.includes('UNABLE') || cleaned.includes('STOPPED') ||
-      cleaned.includes('?')
+      cleaned.includes('SEARCHING') || cleaned.includes('?')
     ) return null;
+
+    // Reject OBD negative response codes (7F xx xx)
+    if (cleaned.startsWith('7F')) return null;
 
     let hexData = cleaned;
     const mode41Index = hexData.indexOf('41');
@@ -311,6 +314,46 @@ const parseFaultCodes = (rawData) => {
 // ─────────────────────────────────────────────────────────────────────────────
 //  OBDService Class
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+//  PID Support Bitmask Parser
+//  Each of 0100/0120/0140/0160 returns a 4-byte bitmask of which PIDs are
+//  supported in that range. Bit 31 of 0100 → PID 01, bit 0 of 0100 → PID 20.
+// ─────────────────────────────────────────────────────────────────────────────
+const parseSupportedPIDs = (rawData, baseHex) => {
+  try {
+    if (!rawData) return new Set();
+    const cleaned = rawData
+      .replace(/\r/g, '').replace(/\n/g, '').replace(/>/g, '')
+      .replace(/\s+/g, '').trim().toUpperCase();
+    if (cleaned.includes('NODATA') || cleaned.includes('ERROR') ||
+        cleaned.includes('UNABLE') || cleaned.startsWith('7F')) return new Set();
+
+    // Response is 41 XX BB BB BB BB where XX is PID 00/20/40/60
+    const mode41Index = cleaned.indexOf('41');
+    if (mode41Index < 0) return new Set();
+    const bytes = cleaned.substring(mode41Index).match(/.{1,2}/g);
+    if (!bytes || bytes.length < 6) return new Set();
+
+    // bytes[0]=41 bytes[1]=pidByte bytes[2..5]=bitmask
+    const bitmask = (parseInt(bytes[2], 16) << 24) |
+                    (parseInt(bytes[3], 16) << 16) |
+                    (parseInt(bytes[4], 16) << 8)  |
+                     parseInt(bytes[5], 16);
+
+    const base = parseInt(baseHex, 16);
+    const supported = new Set();
+    for (let i = 0; i < 32; i++) {
+      if (bitmask & (1 << (31 - i))) {
+        const pid = (base + i + 1).toString(16).toUpperCase().padStart(2, '0');
+        supported.add(pid);
+      }
+    }
+    return supported;
+  } catch (e) {
+    return new Set();
+  }
+};
+
 class OBDService {
   constructor() {
     this.device = null;
@@ -324,6 +367,13 @@ class OBDService {
     this.isProcessing = false;
     this.connectionListeners = [];
     this.disconnectSubscription = null;
+    this.supportedPIDs = new Set(); // populated during connect() PID discovery
+  }
+
+  _isPIDSupported(pidHex) {
+    // If discovery hasn't run yet (empty set), allow all PIDs
+    if (this.supportedPIDs.size === 0) return true;
+    return this.supportedPIDs.has(pidHex.toUpperCase());
   }
 
   onConnectionChange(callback) {
@@ -391,21 +441,71 @@ class OBDService {
         console.log('OBD: Device disconnected');
         this._notifyConnectionChange(false);
         this.device = null;
+        this.supportedPIDs = new Set();
       });
 
       // ELM327 initialisation sequence
-      await this._sendRawCommand(AT_COMMANDS.RESET);        await this._delay(1500);
+      await this._sendRawCommand(AT_COMMANDS.RESET);        await this._delay(2000);
       await this._sendRawCommand(AT_COMMANDS.ECHO_OFF);     await this._delay(500);
       await this._sendRawCommand(AT_COMMANDS.LINEFEED_OFF); await this._delay(200);
       await this._sendRawCommand(AT_COMMANDS.HEADERS_OFF);  await this._delay(200);
       await this._sendRawCommand(AT_COMMANDS.SPACES_OFF);   await this._delay(200);
-      await this._sendRawCommand(AT_COMMANDS.AUTO_PROTOCOL);await this._delay(500);
+      await this._sendRawCommand(AT_COMMANDS.AUTO_PROTOCOL);await this._delay(2000);
       await this._sendRawCommand(AT_COMMANDS.ADAPTIVE_TIMING); await this._delay(200);
       await this._sendRawCommand(AT_COMMANDS.TIMEOUT);      await this._delay(200);
 
-      const testResponse = await this.sendCommand(COMMANDS.RPM);
-      console.log('OBD: Test RPM response:', testResponse);
+      // ── PID Discovery (paper Section 3.3.2) ──────────────────────────────
+      // Send 0100/0120/0140/0160 to find which PIDs the vehicle supports.
+      // 0100 is mandatory on all OBD-II vehicles — we use it to confirm the
+      // ECU is responding, with retries to handle SEARCHING... timing.
+      this.supportedPIDs = new Set();
 
+      let r0100 = await this.sendCommand('0100\r');
+      console.log('OBD: 0100 response:', r0100);
+
+      // Wait out SEARCHING... (ELM327 still detecting protocol)
+      let retries = 0;
+      while (retries < 5) {
+        const up = (r0100 || '').toUpperCase();
+        if (!up || up.includes('SEARCHING') || up.includes('TRYINGPROT')) {
+          console.log(`OBD: Protocol searching, waiting... (${retries + 1}/5)`);
+          await this._delay(2000);
+          r0100 = await this.sendCommand('0100\r');
+          console.log(`OBD: 0100 retry (${retries + 1}):`, r0100);
+          retries++;
+        } else {
+          break;
+        }
+      }
+
+      const up0100 = (r0100 || '').toUpperCase();
+      if (!up0100 || up0100.includes('NODATA') || up0100.includes('UNABLE')) {
+        console.error('OBD: ECU not responding to 0100');
+        this.disconnect();
+        return false;
+      }
+
+      // Parse supported PID ranges
+      const pids0100 = parseSupportedPIDs(r0100, '00');
+      pids0100.forEach(p => this.supportedPIDs.add(p));
+      console.log('OBD: PIDs 01-20 supported:', [...pids0100]);
+
+      const r0120 = await this.sendCommand('0120\r');
+      const pids0120 = parseSupportedPIDs(r0120, '20');
+      pids0120.forEach(p => this.supportedPIDs.add(p));
+      console.log('OBD: PIDs 21-40 supported:', [...pids0120]);
+
+      const r0140 = await this.sendCommand('0140\r');
+      const pids0140 = parseSupportedPIDs(r0140, '40');
+      pids0140.forEach(p => this.supportedPIDs.add(p));
+      console.log('OBD: PIDs 41-60 supported:', [...pids0140]);
+
+      const r0160 = await this.sendCommand('0160\r');
+      const pids0160 = parseSupportedPIDs(r0160, '60');
+      pids0160.forEach(p => this.supportedPIDs.add(p));
+      console.log('OBD: PIDs 61-80 supported:', [...pids0160]);
+
+      console.log('OBD: Total supported PIDs:', this.supportedPIDs.size);
       this._notifyConnectionChange(true);
       return true;
     } catch (error) {
@@ -468,34 +568,34 @@ class OBDService {
   }
 
   // ── getSensorData — core dashboard sensors (fast, every 2s) ───────────────
+  // Only queries PIDs confirmed supported during PID discovery in connect().
   async getSensorData() {
     if (!this.isConnected) return null;
     try {
       const data = {};
-      const rpmRaw          = await this.sendCommand(COMMANDS.RPM);
-      data.rpm              = parseResponse('RPM', rpmRaw) || 0;
-      const speedRaw        = await this.sendCommand(COMMANDS.SPEED);
-      data.speed            = parseResponse('SPEED', speedRaw) || 0;
-      const coolantRaw      = await this.sendCommand(COMMANDS.COOLANT_TEMP);
-      data.coolantTemp      = parseResponse('COOLANT_TEMP', coolantRaw) || 0;
-      const throttleRaw     = await this.sendCommand(COMMANDS.THROTTLE);
-      data.throttle         = parseResponse('THROTTLE', throttleRaw) || 0;
-      const fuelRaw         = await this.sendCommand(COMMANDS.FUEL_LEVEL);
-      data.fuelLevel        = parseResponse('FUEL_LEVEL', fuelRaw) || 0;
-      const loadRaw         = await this.sendCommand(COMMANDS.ENGINE_LOAD);
-      data.engineLoad       = parseResponse('ENGINE_LOAD', loadRaw) || 0;
-      const voltageRaw      = await this.sendCommand(COMMANDS.CONTROL_VOLTAGE);
-      data.voltage          = parseResponse('CONTROL_VOLTAGE', voltageRaw) || 0;
-      const intakeRaw       = await this.sendCommand(COMMANDS.INTAKE_TEMP);
-      data.intakeTemp       = parseResponse('INTAKE_TEMP', intakeRaw) || 0;
-      const mafRaw          = await this.sendCommand(COMMANDS.MAF);
-      data.maf              = parseResponse('MAF', mafRaw) || 0;
-      const timingRaw       = await this.sendCommand(COMMANDS.TIMING_ADVANCE);
-      data.timing           = parseResponse('TIMING_ADVANCE', timingRaw) || 0;
-      const fuelPressureRaw = await this.sendCommand(COMMANDS.FUEL_PRESSURE);
-      data.fuelPressure     = parseResponse('FUEL_PRESSURE', fuelPressureRaw) || 0;
-      const fuelTrimRaw     = await this.sendCommand(COMMANDS.SHORT_FUEL_TRIM);
-      data.fuelTrim         = parseResponse('SHORT_FUEL_TRIM', fuelTrimRaw) || 0;
+
+      // Helper: query only if PID is known supported
+      const query = async (pidKey, pidName, pidHex) => {
+        if (!this._isPIDSupported(pidHex)) return 0;
+        const raw = await this.sendCommand(COMMANDS[pidKey]);
+        const parsed = parseResponse(pidName, raw);
+        if (parsed === null) console.log(`OBD RAW [${pidName}]:`, raw);
+        return parsed || 0;
+      };
+
+      data.rpm         = await query('RPM',           'RPM',           '0C');
+      data.speed       = await query('SPEED',         'SPEED',         '0D');
+      data.coolantTemp = await query('COOLANT_TEMP',  'COOLANT_TEMP',  '05');
+      data.throttle    = await query('THROTTLE',      'THROTTLE',      '11');
+      data.fuelLevel   = await query('FUEL_LEVEL',    'FUEL_LEVEL',    '2F');
+      data.engineLoad  = await query('ENGINE_LOAD',   'ENGINE_LOAD',   '04');
+      data.voltage     = await query('CONTROL_VOLTAGE','CONTROL_VOLTAGE','42');
+      data.intakeTemp  = await query('INTAKE_TEMP',   'INTAKE_TEMP',   '0F');
+      data.maf         = await query('MAF',           'MAF',           '10');
+      data.timing      = await query('TIMING_ADVANCE','TIMING_ADVANCE','0E');
+      data.fuelPressure= await query('FUEL_PRESSURE', 'FUEL_PRESSURE', '0A');
+      data.fuelTrim    = await query('SHORT_FUEL_TRIM','SHORT_FUEL_TRIM','06');
+
       return data;
     } catch (error) {
       console.warn('OBD getSensorData Error:', error.message);

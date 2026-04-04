@@ -14,5 +14,9 @@ export default function App() {
     }, 2000);
   }, []);
 
-  return <AppNavigator />;
+  return (
+    <SafeAreaProvider>
+      <AppNavigator />
+    </SafeAreaProvider>
+  );
 }

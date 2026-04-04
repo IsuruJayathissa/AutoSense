@@ -12,9 +12,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import OBDService from '../services/OBDService';
 
-export default function DashboardScreen({ navigation, route }) {
-  const isConnected = route?.params?.isConnected || false;
-  
+export default function DashboardScreen({ navigation }) {
+  const [obdConnected, setObdConnected] = useState(OBDService.isConnected);
+
   const [sensorData, setSensorData] = useState({
     rpm: 0,
     speed: 0,
@@ -24,22 +24,26 @@ export default function DashboardScreen({ navigation, route }) {
     engineLoad: 0,
     voltage: 0,
   });
-  
+
   const intervalRef = useRef(null);
 
   useEffect(() => {
-    if (isConnected && OBDService.isConnected) {
-      startRealDataPolling();
-    } else {
-      startSimulation();
-    }
+    const unsubscribe = OBDService.onConnectionChange((connected) => {
+      setObdConnected(connected);
+      if (connected) {
+        startRealDataPolling();
+      } else {
+        if (intervalRef.current) clearInterval(intervalRef.current);
+      }
+    });
+
+    if (OBDService.isConnected) startRealDataPolling();
 
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
+      unsubscribe();
+      if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [isConnected]);
+  }, []);
 
   const startRealDataPolling = () => {
     intervalRef.current = setInterval(async () => {
@@ -50,19 +54,6 @@ export default function DashboardScreen({ navigation, route }) {
     }, 2000);
   };
 
-  const startSimulation = () => {
-    intervalRef.current = setInterval(() => {
-      setSensorData({
-        rpm: Math.floor(Math.random() * 3000) + 800,
-        speed: Math.floor(Math.random() * 120),
-        coolantTemp: Math.floor(Math.random() * 30) + 75,
-        throttle: Math.floor(Math.random() * 100),
-        fuelLevel: Math.floor(Math.random() * 40) + 60,
-        engineLoad: Math.floor(Math.random() * 60) + 20,
-        voltage: (Math.random() * 2 + 12).toFixed(1),
-      });
-    }, 2000);
-  };
 
   const getStatusColor = (value, min, max) => {
     if (value > max) return '#EF4444';
@@ -115,11 +106,11 @@ export default function DashboardScreen({ navigation, route }) {
           <Text style={styles.headerTitle}>Live Dashboard</Text>
           
           <View style={[styles.statusBadge, {
-            backgroundColor: isConnected && OBDService.isConnected ? '#10B981' : '#F59E0B'
+            backgroundColor: obdConnected ? '#10B981' : '#F59E0B'
           }]}>
             <View style={styles.statusDot} />
             <Text style={styles.statusBadgeText}>
-              {isConnected && OBDService.isConnected ? 'LIVE' : 'SIM'}
+              {obdConnected ? 'LIVE' : 'SIM'}
             </Text>
           </View>
         </View>
@@ -129,7 +120,7 @@ export default function DashboardScreen({ navigation, route }) {
           showsVerticalScrollIndicator={false}
         >
           {/* Connection Warning */}
-          {(!isConnected || !OBDService.isConnected) && (
+          {(!obdConnected) && (
             <TouchableOpacity
               style={styles.warningCard}
               onPress={() => navigation.navigate('OBDConnection')}
@@ -155,7 +146,7 @@ export default function DashboardScreen({ navigation, route }) {
           <View style={styles.sectionHeader}>
             <Ionicons name="pulse" size={20} color="#1F2937" />
             <Text style={styles.sectionTitle}>Real-time Sensors</Text>
-            {(isConnected && OBDService.isConnected) && (
+            {(obdConnected) && (
               <View style={styles.liveIndicator} />
             )}
           </View>
@@ -171,14 +162,6 @@ export default function DashboardScreen({ navigation, route }) {
               max={6000} 
             />
             <GaugeCard 
-              icon="car-sport" 
-              value={sensorData.speed} 
-              unit="km/h" 
-              label="Vehicle Speed" 
-              min={0} 
-              max={200} 
-            />
-            <GaugeCard 
               icon="thermometer" 
               value={sensorData.coolantTemp} 
               unit="°C" 
@@ -192,14 +175,6 @@ export default function DashboardScreen({ navigation, route }) {
               unit="%" 
               label="Throttle" 
               min={0} 
-              max={100} 
-            />
-            <GaugeCard 
-              icon="water" 
-              value={sensorData.fuelLevel} 
-              unit="%" 
-              label="Fuel Level" 
-              min={10} 
               max={100} 
             />
             <GaugeCard 
@@ -251,10 +226,10 @@ export default function DashboardScreen({ navigation, route }) {
                 <Text style={styles.statusLabel}>Connection</Text>
               </View>
               <View style={[styles.statusValueBadge, {
-                backgroundColor: isConnected && OBDService.isConnected ? '#10B981' : '#F59E0B'
+                backgroundColor: obdConnected ? '#10B981' : '#F59E0B'
               }]}>
                 <Text style={styles.statusValueText}>
-                  {isConnected && OBDService.isConnected ? 'Real OBD-II' : 'Simulated'}
+                  {obdConnected ? 'Real OBD-II' : 'Simulated'}
                 </Text>
               </View>
             </View>
@@ -322,7 +297,7 @@ export default function DashboardScreen({ navigation, route }) {
 
             <TouchableOpacity 
               style={styles.actionCard}
-              onPress={() => navigation.navigate('DataCharts', { isConnected })}
+              onPress={() => navigation.navigate('DataCharts')}
             >
               <LinearGradient
                 colors={['#8B0000', '#A00000']}

@@ -10,6 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BleManager } from 'react-native-ble-plx';
 import OBDService from '../services/OBDService';
 
+// Single BleManager instance — never destroyed so it works across remounts
 const manager = new BleManager();
 
 // ── VALIDATION 3: OBD-specific device name filter ──────────────────────────
@@ -36,7 +37,7 @@ export default function OBDConnectionScreen({ navigation }) {
 
   useEffect(() => {
     return () => {
-      manager.destroy();
+      manager.stopDeviceScan();
       if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
     };
   }, []);

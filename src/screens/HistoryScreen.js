@@ -6,11 +6,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
-const sampleHistory = [
-  { id: '1', date: '2026-02-17', faults: 2, status: 'Warning', mileage: '45,230 km' },
-  { id: '2', date: '2026-02-16', faults: 0, status: 'Normal', mileage: '45,180 km' },
-  { id: '3', date: '2026-02-15', faults: 1, status: 'Warning', mileage: '45,100 km' },
-];
 
 export default function HistoryScreen({ navigation }) {
   return (
@@ -31,7 +26,7 @@ export default function HistoryScreen({ navigation }) {
         </View>
 
         <FlatList
-          data={sampleHistory}
+          data={[]}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => (
