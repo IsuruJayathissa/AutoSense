@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
+import OBDService from '../services/OBDService';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 60) / 2;
@@ -22,9 +23,12 @@ const CARD_WIDTH = (width - 60) / 2;
 export default function HomeScreen({ navigation }) {
   const [vehicleData, setVehicleData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [obdConnected, setObdConnected] = useState(OBDService.isConnected);
 
   useEffect(() => {
     loadVehicleData();
+    const unsubscribe = OBDService.onConnectionChange(setObdConnected);
+    return unsubscribe;
   }, []);
 
   const loadVehicleData = async () => {
@@ -184,9 +188,11 @@ export default function HomeScreen({ navigation }) {
                       {vehicleData.brand} {vehicleData.model}
                     </Text>
                   </View>
-                  <View style={styles.statusBadge}>
-                    <View style={styles.statusDot} />
-                    <Text style={styles.statusText}>Active</Text>
+                  <View style={[styles.statusBadge, { borderColor: obdConnected ? '#10B981' : '#9CA3AF' }]}>
+                    <View style={[styles.statusDot, { backgroundColor: obdConnected ? '#10B981' : '#9CA3AF' }]} />
+                    <Text style={[styles.statusText, { color: obdConnected ? '#10B981' : '#9CA3AF' }]}>
+                      {obdConnected ? 'Connected' : 'Not Connected'}
+                    </Text>
                   </View>
                 </View>
 
