@@ -118,6 +118,13 @@ export default function HomeScreen({ navigation }) {
       color: '#8B0000',
     },
     {
+      id: '9',
+      icon: 'hardware-chip-outline',
+      title: 'AI Diagnostics',
+      screen: 'AIDiagnostics',
+      color: '#8B0000',
+    },
+    {
       id: '8',
       icon: 'settings-outline',
       title: 'Settings',

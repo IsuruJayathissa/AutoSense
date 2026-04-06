@@ -17,6 +17,7 @@ import HistoryScreen from '../screens/HistoryScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import DataChartsScreen from '../screens/DataChartsScreen';
 import DataCollectionScreen from '../screens/DataCollectionScreen';
+import AIDiagnosticsScreen from '../screens/AIDiagnosticsScreen';
 
 const Stack = createStackNavigator();
 
@@ -49,6 +50,7 @@ export default function AppNavigator() {
             <Stack.Screen name="History" component={HistoryScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="DataCollection" component={DataCollectionScreen} />
+            <Stack.Screen name="AIDiagnostics" component={AIDiagnosticsScreen} />
           </>
         ) : (
           <Stack.Screen name="VehicleAuth" component={VehicleAuthScreen} />
