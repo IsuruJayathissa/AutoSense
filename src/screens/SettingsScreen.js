@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   ScrollView, Switch, Alert, Modal,
   Linking, ActivityIndicator, StatusBar, TextInput,
+  FlatList, TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +19,75 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // AsyncStorage keys
 const PREFS_KEY = '@svd_preferences';
 const HISTORY_KEY = '@svd_scan_history';
+
+// Vehicle data for dropdowns
+const VEHICLE_DATA = {
+  Toyota:     ['Aqua', 'Axio', 'Allion', 'Camry', 'Corolla', 'Hiace', 'Hilux', 'Land Cruiser', 'Passo', 'Premio', 'Prius', 'RAV4', 'Rush', 'Vitz'],
+  Honda:      ['Accord', 'Amaze', 'BR-V', 'City', 'Civic', 'CR-V', 'Fit', 'HR-V', 'Jazz', 'Vezel', 'WR-V'],
+  Nissan:     ['Almera', 'Dayz', 'GT-R', 'Juke', 'Kicks', 'Leaf', 'March', 'Navara', 'Note', 'Patrol', 'Sunny', 'Teana', 'X-Trail'],
+  Suzuki:     ['Alto', 'Baleno', 'Celerio', 'Dzire', 'Ertiga', 'Jimny', 'S-Cross', 'Swift', 'Vitara', 'Wagon R'],
+  Mitsubishi: ['ASX', 'Eclipse Cross', 'Lancer', 'Mirage', 'Montero', 'Outlander', 'Pajero', 'Triton'],
+  Hyundai:    ['Accent', 'Creta', 'Elantra', 'Grand i10', 'i10', 'i20', 'Ioniq', 'Kona', 'Santa Fe', 'Tucson', 'Venue'],
+  Kia:        ['Carnival', 'Cerato', 'EV6', 'Niro', 'Picanto', 'Rio', 'Seltos', 'Sorento', 'Sportage'],
+  BMW:        ['1 Series', '3 Series', '5 Series', '7 Series', 'X1', 'X3', 'X5', 'X7'],
+  Mercedes:   ['A-Class', 'C-Class', 'E-Class', 'GLA', 'GLC', 'GLE', 'S-Class'],
+  Ford:       ['EcoSport', 'Endeavour', 'Explorer', 'F-150', 'Fiesta', 'Focus', 'Mustang', 'Ranger'],
+  Other:      ['Other'],
+};
+const BRANDS       = Object.keys(VEHICLE_DATA);
+const ENGINE_TYPES = ['Petrol', 'Diesel', 'Hybrid'];
+
+// Inline dropdown for vehicle profile editing
+function ModalDropdown({ label, value, options, onSelect, placeholder, disabled }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={{ marginBottom: 12 }}>
+      <Text style={styles.editLabel}>{label}</Text>
+      <TouchableOpacity
+        style={[styles.editDropdown, disabled && { opacity: 0.4 }]}
+        onPress={() => !disabled && setOpen(true)}
+        activeOpacity={0.8}
+      >
+        <Text style={[styles.editDropdownText, !value && { color: '#9CA3AF' }]}>
+          {value || placeholder}
+        </Text>
+        <Ionicons name="chevron-down" size={16} color="#8B0000" />
+      </TouchableOpacity>
+      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+        <TouchableWithoutFeedback onPress={() => setOpen(false)}>
+          <View style={styles.ddOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.ddSheet}>
+                <View style={styles.ddHeader}>
+                  <Text style={styles.ddTitle}>{label}</Text>
+                  <TouchableOpacity onPress={() => setOpen(false)}>
+                    <Ionicons name="close" size={22} color="#6B7280" />
+                  </TouchableOpacity>
+                </View>
+                <FlatList
+                  data={options}
+                  keyExtractor={item => item}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={[styles.ddItem, item === value && styles.ddItemActive]}
+                      onPress={() => { onSelect(item); setOpen(false); }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.ddItemText, item === value && { color: '#8B0000', fontWeight: '700' }]}>
+                        {item}
+                      </Text>
+                      {item === value && <Ionicons name="checkmark" size={18} color="#8B0000" />}
+                    </TouchableOpacity>
+                  )}
+                />
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    </View>
+  );
+}
 
 export default function SettingsScreen({ navigation }) {
   // Preferences (persisted)
@@ -40,6 +110,15 @@ export default function SettingsScreen({ navigation }) {
 
   // Data stats
   const [dataStats, setDataStats] = useState({ scans: 0, faults: 0, lastScan: 'N/A' });
+
+  // Vehicle edit state
+  const [vehicleEditMode, setVehicleEditMode]         = useState(false);
+  const [editBrand, setEditBrand]                     = useState('');
+  const [editModel, setEditModel]                     = useState('');
+  const [editYear, setEditYear]                       = useState('');
+  const [editEngineType, setEditEngineType]           = useState('');
+  const [editVehicleNumber, setEditVehicleNumber]     = useState('');
+  const [vehicleSaving, setVehicleSaving]             = useState(false);
 
   // Modals
   const [guideVisible, setGuideVisible] = useState(false);
@@ -106,15 +185,29 @@ export default function SettingsScreen({ navigation }) {
 
   const loadDataStats = async () => {
     try {
-      const historyData = await AsyncStorage.getItem(HISTORY_KEY);
-      if (historyData) {
-        const history = JSON.parse(historyData);
-        setDataStats({
-          scans: history.length,
-          faults: history.reduce((sum, h) => sum + (h.faultCount || 0), 0),
-          lastScan: history.length > 0 ? history[history.length - 1].date : 'N/A',
-        });
-      }
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
+      // Pull real session counts from Firestore trainingData collection
+      const { getDocs: _getDocs, query: _query, collection: _col, where: _where } =
+        await import('firebase/firestore');
+      const snap = await _getDocs(_query(
+        _col(db, 'trainingData'),
+        _where('userId', '==', userId)
+      ));
+      const sessions = snap.docs.map(d => d.data());
+      const lastSession = sessions.length > 0
+        ? sessions.reduce((latest, s) => {
+            const t = s.createdAt?.toDate?.() || new Date(0);
+            return t > latest ? t : latest;
+          }, new Date(0))
+        : null;
+      setDataStats({
+        scans: sessions.length,
+        faults: sessions.filter(s => s.label === 'Warning' || s.label === 'Critical').length,
+        lastScan: lastSession
+          ? lastSession.toLocaleDateString()
+          : 'N/A',
+      });
     } catch (e) {
       console.warn('Error loading data stats:', e);
     }
@@ -268,6 +361,71 @@ export default function SettingsScreen({ navigation }) {
     } catch (e) {
       console.warn('Error saving maintenance:', e);
     }
+  };
+
+  const openVehicleEdit = () => {
+    setEditBrand(vehicleInfo?.brand || '');
+    setEditModel(vehicleInfo?.model || '');
+    setEditYear(vehicleInfo?.year || '');
+    setEditEngineType(vehicleInfo?.engineType || '');
+    setEditVehicleNumber(vehicleInfo?.vehicleNumber || '');
+    setVehicleEditMode(true);
+  };
+
+  const handleUpdateVehicle = async () => {
+    if (!editBrand || !editModel || !editYear || !editEngineType || !editVehicleNumber) {
+      Alert.alert('Incomplete', 'Please fill in all fields before saving.');
+      return;
+    }
+    setVehicleSaving(true);
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) throw new Error('Not logged in');
+      await setDoc(doc(db, 'vehicles', vehicleInfo.id), {
+        brand: editBrand,
+        model: editModel,
+        year: editYear,
+        engineType: editEngineType,
+        vehicleNumber: editVehicleNumber,
+      }, { merge: true });
+      setVehicleInfo(prev => ({ ...prev, brand: editBrand, model: editModel, year: editYear, engineType: editEngineType, vehicleNumber: editVehicleNumber }));
+      setVehicleEditMode(false);
+      Alert.alert('Updated', 'Vehicle profile updated successfully.');
+    } catch (e) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setVehicleSaving(false);
+    }
+  };
+
+  const handleDeleteVehicle = () => {
+    Alert.alert(
+      'Delete Vehicle',
+      'This will permanently remove your vehicle profile. Are you sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete', style: 'destructive',
+          onPress: async () => {
+            setVehicleSaving(true);
+            try {
+              const userId = auth.currentUser?.uid;
+              if (!userId) throw new Error('Not logged in');
+              await deleteDoc(doc(db, 'vehicles', vehicleInfo.id));
+              await deleteDoc(doc(db, 'userVehicles', userId));
+              setVehicleInfo(null);
+              setVehicleEditMode(false);
+              setVehicleModalVisible(false);
+              Alert.alert('Deleted', 'Vehicle profile has been removed.');
+            } catch (e) {
+              Alert.alert('Error', e.message);
+            } finally {
+              setVehicleSaving(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleLogout = async () => {
@@ -552,25 +710,115 @@ export default function SettingsScreen({ navigation }) {
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>🚗 Vehicle Profile</Text>
-              <TouchableOpacity onPress={() => setVehicleModalVisible(false)}>
+              <TouchableOpacity onPress={() => { setVehicleModalVisible(false); setVehicleEditMode(false); }}>
                 <Ionicons name="close-circle" size={28} color="#8B0000" />
               </TouchableOpacity>
             </View>
-            <View style={styles.modalBody}>
+
+            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
               {vehicleInfo ? (
-                <View>
-                  <ProfileRow label="Brand" value={vehicleInfo.brand || 'N/A'} icon="car-sport" />
-                  <ProfileRow label="Model" value={vehicleInfo.model || 'N/A'} icon="construct" />
-                  <ProfileRow label="Year" value={vehicleInfo.year || 'N/A'} icon="calendar" />
-                  <ProfileRow label="Engine Type" value={vehicleInfo.engineType || 'N/A'} icon="flash" />
-                  <ProfileRow label="Vehicle Number" value={vehicleInfo.vehicleNumber || 'N/A'} icon="card" />
-                  <View style={styles.profileNote}>
-                    <Ionicons name="information-circle" size={18} color="#8B0000" />
-                    <Text style={styles.profileNoteText}>
-                      To change your vehicle details, please logout and register with new information.
-                    </Text>
+                vehicleEditMode ? (
+                  /* ── Edit Mode ── */
+                  <View>
+                    <ModalDropdown
+                      label="Brand"
+                      value={editBrand}
+                      options={BRANDS}
+                      onSelect={(v) => { setEditBrand(v); setEditModel(''); }}
+                      placeholder="Select Brand"
+                    />
+                    <ModalDropdown
+                      label="Model"
+                      value={editModel}
+                      options={editBrand ? VEHICLE_DATA[editBrand] : []}
+                      onSelect={setEditModel}
+                      placeholder="Select Model"
+                      disabled={!editBrand}
+                    />
+                    <Text style={styles.editLabel}>Year</Text>
+                    <TextInput
+                      style={styles.editInput}
+                      value={editYear}
+                      onChangeText={setEditYear}
+                      placeholder="e.g. 2018"
+                      placeholderTextColor="#9CA3AF"
+                      keyboardType="numeric"
+                      maxLength={4}
+                    />
+                    <ModalDropdown
+                      label="Engine Type"
+                      value={editEngineType}
+                      options={ENGINE_TYPES}
+                      onSelect={setEditEngineType}
+                      placeholder="Select Engine Type"
+                    />
+                    <Text style={styles.editLabel}>Vehicle Number</Text>
+                    <TextInput
+                      style={styles.editInput}
+                      value={editVehicleNumber}
+                      onChangeText={setEditVehicleNumber}
+                      placeholder="e.g. PE-9088"
+                      placeholderTextColor="#9CA3AF"
+                      autoCapitalize="characters"
+                    />
+
+                    {/* Update & Cancel buttons */}
+                    <TouchableOpacity
+                      style={styles.updateBtn}
+                      onPress={handleUpdateVehicle}
+                      disabled={vehicleSaving}
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient colors={['#8B0000', '#A00000']} style={styles.updateBtnGrad}>
+                        {vehicleSaving
+                          ? <ActivityIndicator color="#FFF" size="small" />
+                          : <Ionicons name="checkmark" size={18} color="#FFF" />}
+                        <Text style={styles.updateBtnText}>
+                          {vehicleSaving ? 'Saving…' : 'Update'}
+                        </Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.cancelBtn}
+                      onPress={() => setVehicleEditMode(false)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.cancelBtnText}>Cancel</Text>
+                    </TouchableOpacity>
                   </View>
-                </View>
+                ) : (
+                  /* ── View Mode ── */
+                  <View>
+                    <ProfileRow label="Brand"          value={vehicleInfo.brand         || 'N/A'} icon="car-sport" />
+                    <ProfileRow label="Model"          value={vehicleInfo.model         || 'N/A'} icon="construct" />
+                    <ProfileRow label="Year"           value={vehicleInfo.year          || 'N/A'} icon="calendar" />
+                    <ProfileRow label="Engine Type"    value={vehicleInfo.engineType    || 'N/A'} icon="flash" />
+                    <ProfileRow label="Vehicle Number" value={vehicleInfo.vehicleNumber || 'N/A'} icon="card" />
+
+                    {/* Edit & Delete buttons */}
+                    <View style={styles.vehicleBtnRow}>
+                      <TouchableOpacity
+                        style={[styles.vehicleActionBtn, { backgroundColor: '#8B0000' }]}
+                        onPress={openVehicleEdit}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="create-outline" size={16} color="#FFF" />
+                        <Text style={styles.vehicleActionBtnText}>Edit</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.vehicleActionBtn, { backgroundColor: '#EF4444' }]}
+                        onPress={handleDeleteVehicle}
+                        disabled={vehicleSaving}
+                        activeOpacity={0.8}
+                      >
+                        {vehicleSaving
+                          ? <ActivityIndicator color="#FFF" size="small" />
+                          : <Ionicons name="trash-outline" size={16} color="#FFF" />}
+                        <Text style={styles.vehicleActionBtnText}>Delete</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )
               ) : (
                 <View style={styles.emptyState}>
                   <Ionicons name="car-outline" size={48} color="#D1D5DB" />
@@ -578,7 +826,7 @@ export default function SettingsScreen({ navigation }) {
                   <Text style={styles.emptySubtext}>Register a vehicle to see your profile here.</Text>
                 </View>
               )}
-            </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -634,14 +882,14 @@ export default function SettingsScreen({ navigation }) {
             <View style={styles.modalBody}>
               <View style={styles.statRow}>
                 <View style={styles.statCard}>
-                  <Ionicons name="scan-outline" size={28} color="#8B0000" />
+                  <Ionicons name="server-outline" size={28} color="#8B0000" />
                   <Text style={styles.statValue}>{dataStats.scans}</Text>
-                  <Text style={styles.statLabel}>Total Scans</Text>
+                  <Text style={styles.statLabel}>OBD Sessions</Text>
                 </View>
                 <View style={styles.statCard}>
                   <Ionicons name="warning-outline" size={28} color="#F59E0B" />
                   <Text style={styles.statValue}>{dataStats.faults}</Text>
-                  <Text style={styles.statLabel}>Faults Found</Text>
+                  <Text style={styles.statLabel}>Anomalies</Text>
                 </View>
               </View>
               <ProfileRow label="Last Scan" value={dataStats.lastScan} icon="time" />
@@ -1182,4 +1430,45 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     marginTop: 4,
   },
+
+  // Vehicle edit form
+  editLabel: {
+    fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6,
+  },
+  editInput: {
+    borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 10,
+    fontSize: 14, color: '#1F2937', backgroundColor: '#F9FAFB',
+    marginBottom: 12,
+  },
+  editDropdown: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#F9FAFB',
+  },
+  editDropdownText: { fontSize: 14, color: '#1F2937' },
+
+  // Update / Cancel
+  updateBtn:     { borderRadius: 10, overflow: 'hidden', marginTop: 8, marginBottom: 8 },
+  updateBtnGrad: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 13, gap: 8 },
+  updateBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+  cancelBtn:     { alignItems: 'center', paddingVertical: 10 },
+  cancelBtnText: { fontSize: 14, color: '#6B7280', fontWeight: '600' },
+
+  // Edit / Delete row
+  vehicleBtnRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  vehicleActionBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 11, borderRadius: 10,
+  },
+  vehicleActionBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+
+  // Dropdown sheet (ModalDropdown)
+  ddOverlay:  { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  ddSheet:    { backgroundColor: '#FFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '60%' },
+  ddHeader:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+  ddTitle:    { fontSize: 16, fontWeight: '700', color: '#1F2937' },
+  ddItem:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  ddItemActive: { backgroundColor: '#FFF5F5' },
+  ddItemText: { fontSize: 15, color: '#1F2937' },
 });
