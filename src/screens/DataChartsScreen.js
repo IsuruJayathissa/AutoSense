@@ -460,7 +460,7 @@ export default function DataChartsScreen({ navigation }) {
                     <Ionicons name={row.icon} size={20} color="#6B7280" />
                     <Text style={styles.infoLabel}>{row.label}</Text>
                   </View>
-                  <Text style={[styles.infoValue, row.label === 'Data Source' && !isConnected && { color: '#EF4444' }]}>
+                  <Text style={[styles.infoValue, row.label === 'Data Source' && !obdConnected && { color: '#EF4444' }]}>
                     {row.value}
                   </Text>
                 </View>
