@@ -8,6 +8,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import OBDService from '../services/OBDService';
 import AIModelService from '../services/AIModelService';
+import NotificationService from '../services/NotificationService';
+
+const LABELS = ['Normal', 'Warning', 'Critical'];
+const LABEL_IDX = { Normal: 0, Warning: 1, Critical: 2 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Helpers
@@ -47,9 +51,9 @@ export default function AIDiagnosticsScreen({ navigation }) {
   const [obdConnected, setObdConnected] = useState(OBDService.isConnected);
 
   // ── Training state ─────────────────────────────────────────────────────────
-  const [trainingRecords, setTrainingRecords] = useState(null); // null = not loaded yet
+  const [trainingRecords, setTrainingRecords] = useState(null);
   const [isTraining,      setIsTraining]      = useState(false);
-  const [trainProgress,   setTrainProgress]   = useState(null); // { epoch, total, loss, acc }
+  const [trainProgress,   setTrainProgress]   = useState(null);
   const [modelTrained,    setModelTrained]    = useState(AIModelService.isTrained);
   const [modelAccuracy,   setModelAccuracy]   = useState(AIModelService.lastAccuracy);
 
@@ -58,6 +62,12 @@ export default function AIDiagnosticsScreen({ navigation }) {
   const [liveSensor,   setLiveSensor]   = useState(null);
   const [prediction,   setPrediction]   = useState(null);
   const inferIntervalRef = useRef(null);
+
+  // ── Model evaluation state ─────────────────────────────────────────────────
+  const [evalLoading,   setEvalLoading]   = useState(false);
+  const [evalResult,    setEvalResult]    = useState(null);
+  // evalResult: { matrix: [[]], metrics: [{label, precision, recall, f1}], accuracy }
+  const lastCriticalRef = useRef(false); // suppress repeat notifications
 
   // ── Init ───────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -81,8 +91,62 @@ export default function AIDiagnosticsScreen({ navigation }) {
       setModelAccuracy(AIModelService.lastAccuracy);
       const records = await AIModelService.fetchTrainingRecords();
       setTrainingRecords(records.length);
+      if (AIModelService.isTrained && records.length >= 5) computeEvaluation();
     } catch (e) {
       setTrainingRecords(0);
+    }
+  };
+
+  // ── Model Evaluation ───────────────────────────────────────────────────────
+  const computeEvaluation = async () => {
+    if (!AIModelService.isTrained) return;
+    setEvalLoading(true);
+    try {
+      const records = await AIModelService.fetchTrainingRecords();
+      if (records.length === 0) { setEvalLoading(false); return; }
+
+      // 3×3 confusion matrix: matrix[actual][predicted]
+      const matrix = [[0,0,0],[0,0,0],[0,0,0]];
+
+      for (const r of records) {
+        const actualIdx = LABEL_IDX[r.label] ?? 0;
+        const pred = AIModelService.predict({
+          rpm:         r.avg_rpm         || 0,
+          coolantTemp: r.avg_coolantTemp  || 0,
+          engineLoad:  r.avg_engineLoad   || 0,
+          throttle:    r.avg_throttle     || 0,
+          voltage:     r.avg_voltage      || 0,
+        });
+        if (!pred) continue;
+        const predIdx = LABEL_IDX[pred.label] ?? 0;
+        matrix[actualIdx][predIdx]++;
+      }
+
+      // Per-class precision, recall, F1
+      const metrics = LABELS.map((label, i) => {
+        const tp = matrix[i][i];
+        const fp = matrix.reduce((s, row, r) => r !== i ? s + row[i] : s, 0);
+        const fn = matrix[i].reduce((s, v, c) => c !== i ? s + v : s, 0);
+        const precision = tp + fp > 0 ? tp / (tp + fp) : 0;
+        const recall    = tp + fn > 0 ? tp / (tp + fn) : 0;
+        const f1        = precision + recall > 0 ? 2 * precision * recall / (precision + recall) : 0;
+        return {
+          label,
+          precision: Math.round(precision * 100),
+          recall:    Math.round(recall    * 100),
+          f1:        Math.round(f1        * 100),
+        };
+      });
+
+      const correct = matrix.reduce((s, row, i) => s + row[i], 0);
+      const total   = matrix.reduce((s, row) => s + row.reduce((a,b)=>a+b,0), 0);
+      const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+      setEvalResult({ matrix, metrics, accuracy, total });
+    } catch (e) {
+      Alert.alert('Evaluation Error', e.message);
+    } finally {
+      setEvalLoading(false);
     }
   };
 
@@ -104,6 +168,7 @@ export default function AIDiagnosticsScreen({ navigation }) {
         'Training Complete',
         `Model trained on ${result.sessions} sessions.\nAccuracy: ${result.accuracy}%`
       );
+      computeEvaluation(); // auto-run evaluation after training
     } catch (e) {
       Alert.alert('Training Failed', e.message);
     } finally {
@@ -133,13 +198,23 @@ export default function AIDiagnosticsScreen({ navigation }) {
   const startInference = useCallback(() => {
     if (inferIntervalRef.current) return;
     setInferring(true);
+    lastCriticalRef.current = false;
 
     inferIntervalRef.current = setInterval(async () => {
       const data = await OBDService.getSensorData();
       if (!data) return;
       setLiveSensor(data);
       const result = AIModelService.predict(data);
-      if (result) setPrediction(result);
+      if (!result) return;
+      setPrediction(result);
+
+      // Send push notification on state transition to Critical or Warning
+      if (result.label === 'Critical' && !lastCriticalRef.current) {
+        lastCriticalRef.current = true;
+        NotificationService.sendCriticalAlert(result.confidence);
+      } else if (result.label !== 'Critical') {
+        lastCriticalRef.current = false;
+      }
     }, 2000);
   }, []);
 
@@ -407,6 +482,103 @@ export default function AIDiagnosticsScreen({ navigation }) {
             )}
           </View>
 
+          {/* ── Model Evaluation ─────────────────────────────────────────── */}
+          {modelTrained && (
+            <View style={styles.card}>
+              <View style={styles.cardTopBar} />
+              <View style={styles.evalHeader}>
+                <Text style={styles.cardTitle}>Model Evaluation</Text>
+                <TouchableOpacity
+                  onPress={computeEvaluation}
+                  disabled={evalLoading}
+                  style={styles.evalRefreshBtn}
+                >
+                  {evalLoading
+                    ? <ActivityIndicator size="small" color="#8B0000" />
+                    : <Ionicons name="refresh" size={18} color="#8B0000" />}
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.cardSub}>
+                Runs predictions on all your labeled training sessions to measure real-world accuracy.
+              </Text>
+
+              {evalResult ? (
+                <>
+                  {/* Overall accuracy */}
+                  <View style={styles.evalAccRow}>
+                    <Text style={styles.evalAccLabel}>Overall Accuracy</Text>
+                    <Text style={styles.evalAccValue}>{evalResult.accuracy}%</Text>
+                    <Text style={styles.evalAccSub}>on {evalResult.total} sessions</Text>
+                  </View>
+
+                  {/* Confusion matrix */}
+                  <Text style={styles.evalSectionLabel}>Confusion Matrix (Actual → Predicted)</Text>
+                  <View style={styles.matrixWrap}>
+                    {/* Header row */}
+                    <View style={styles.matrixRow}>
+                      <View style={styles.matrixCorner} />
+                      {LABELS.map(l => (
+                        <View key={l} style={styles.matrixHeadCell}>
+                          <Text style={styles.matrixHeadText} numberOfLines={1}>{l[0]}</Text>
+                        </View>
+                      ))}
+                    </View>
+                    {/* Data rows */}
+                    {evalResult.matrix.map((row, i) => (
+                      <View key={i} style={styles.matrixRow}>
+                        <View style={styles.matrixRowLabel}>
+                          <Text style={styles.matrixRowLabelText}>{LABELS[i][0]}</Text>
+                        </View>
+                        {row.map((val, j) => (
+                          <View key={j} style={[
+                            styles.matrixCell,
+                            i === j && val > 0 && styles.matrixCellCorrect,
+                            i !== j && val > 0 && styles.matrixCellWrong,
+                          ]}>
+                            <Text style={[
+                              styles.matrixCellText,
+                              i === j && val > 0 && { color: '#10B981', fontWeight: '800' },
+                              i !== j && val > 0 && { color: '#EF4444', fontWeight: '700' },
+                            ]}>{val}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ))}
+                    <Text style={styles.matrixLegend}>N=Normal  W=Warning  C=Critical</Text>
+                  </View>
+
+                  {/* Per-class metrics */}
+                  <Text style={styles.evalSectionLabel}>Per-Class Metrics</Text>
+                  <View style={styles.metricsTable}>
+                    <View style={styles.metricsHeaderRow}>
+                      {['Class','Precision','Recall','F1'].map(h => (
+                        <Text key={h} style={styles.metricsHeaderCell}>{h}</Text>
+                      ))}
+                    </View>
+                    {evalResult.metrics.map(m => (
+                      <View key={m.label} style={styles.metricsRow}>
+                        <Text style={[styles.metricsCell, { fontWeight:'700', color: LABEL_COLOR[m.label] }]}>{m.label}</Text>
+                        <Text style={styles.metricsCell}>{m.precision}%</Text>
+                        <Text style={styles.metricsCell}>{m.recall}%</Text>
+                        <Text style={[styles.metricsCell, { fontWeight:'700' }]}>{m.f1}%</Text>
+                      </View>
+                    ))}
+                  </View>
+                </>
+              ) : evalLoading ? (
+                <View style={styles.emptyBox}>
+                  <ActivityIndicator color="#8B0000" />
+                  <Text style={styles.emptyText}>Computing evaluation…</Text>
+                </View>
+              ) : (
+                <View style={styles.emptyBox}>
+                  <Ionicons name="analytics-outline" size={32} color="#D1D5DB" />
+                  <Text style={styles.emptyText}>Tap ↻ to evaluate the model on your training data.</Text>
+                </View>
+              )}
+            </View>
+          )}
+
           {/* ── How it works ─────────────────────────────────────────────── */}
           <View style={styles.card}>
             <View style={styles.cardTopBar} />
@@ -590,6 +762,36 @@ const styles = StyleSheet.create({
   connectLinkText: { fontSize: 13, color: '#8B0000', fontWeight: '600' },
   waitBox:         { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12 },
   waitText:        { fontSize: 13, color: '#9CA3AF' },
+
+  // Evaluation card
+  evalHeader:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  evalRefreshBtn:   { padding: 6 },
+  evalAccRow:       { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 14, flexWrap: 'wrap' },
+  evalAccLabel:     { fontSize: 13, color: '#6B7280', fontWeight: '500' },
+  evalAccValue:     { fontSize: 28, fontWeight: '800', color: '#8B0000' },
+  evalAccSub:       { fontSize: 11, color: '#9CA3AF' },
+  evalSectionLabel: { fontSize: 12, fontWeight: '700', color: '#374151', marginBottom: 8, marginTop: 4 },
+
+  // Confusion matrix
+  matrixWrap:         { marginBottom: 14 },
+  matrixRow:          { flexDirection: 'row', marginBottom: 2 },
+  matrixCorner:       { width: 28, height: 28 },
+  matrixHeadCell:     { flex: 1, height: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6', borderRadius: 4, marginLeft: 2 },
+  matrixHeadText:     { fontSize: 11, fontWeight: '700', color: '#374151' },
+  matrixRowLabel:     { width: 28, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6', borderRadius: 4 },
+  matrixRowLabelText: { fontSize: 11, fontWeight: '700', color: '#374151' },
+  matrixCell:         { flex: 1, height: 36, marginLeft: 2, borderRadius: 4, backgroundColor: '#F9FAFB', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#E5E7EB' },
+  matrixCellCorrect:  { backgroundColor: '#ECFDF5', borderColor: '#10B981' },
+  matrixCellWrong:    { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+  matrixCellText:     { fontSize: 14, color: '#6B7280' },
+  matrixLegend:       { fontSize: 10, color: '#9CA3AF', marginTop: 6, textAlign: 'center' },
+
+  // Per-class metrics table
+  metricsTable:      { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 8, overflow: 'hidden', marginBottom: 4 },
+  metricsHeaderRow:  { flexDirection: 'row', backgroundColor: '#F3F4F6' },
+  metricsHeaderCell: { flex: 1, fontSize: 11, fontWeight: '700', color: '#374151', padding: 8, textAlign: 'center' },
+  metricsRow:        { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#E5E7EB' },
+  metricsCell:       { flex: 1, fontSize: 12, color: '#1F2937', padding: 8, textAlign: 'center' },
 
   // How it works steps
   stepRow:    { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 16 },

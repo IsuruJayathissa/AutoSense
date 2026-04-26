@@ -112,6 +112,32 @@ const NISSAN_CODES = {
   P1800: { description: 'Variable Intake Air System Solenoid', severity: 'Warning', cause: 'Intake solenoid issue', fix: 'Check variable intake solenoid' },
 };
 
+// ─── Additional Standard OBD-II Codes (P0600–P0999) ───────────────────────────
+const STANDARD_CODES_EXTENDED = {
+  P0601: { description: 'Internal Control Module Memory Check Sum Error', severity: 'Critical', cause: 'ECU memory corruption', fix: 'Replace or reflash ECU' },
+  P0602: { description: 'Control Module Programming Error', severity: 'Critical', cause: 'ECU not programmed or corrupt', fix: 'Reprogram ECU at dealer' },
+  P0606: { description: 'ECM/PCM Processor Fault', severity: 'Critical', cause: 'ECU internal failure', fix: 'Replace ECU' },
+  P0620: { description: 'Generator Control Circuit Malfunction', severity: 'Warning', cause: 'Faulty alternator or wiring', fix: 'Check alternator and wiring' },
+  P0621: { description: 'Generator Lamp Control Circuit', severity: 'Info', cause: 'Charging light circuit issue', fix: 'Check charging indicator circuit' },
+  P0622: { description: 'Generator Field Control Circuit', severity: 'Warning', cause: 'Alternator field circuit issue', fix: 'Check alternator and voltage regulator' },
+  P0630: { description: 'VIN Not Programmed or Incompatible', severity: 'Warning', cause: 'ECU VIN mismatch', fix: 'Reprogram ECU with correct VIN' },
+  P0650: { description: 'Malfunction Indicator Lamp (MIL) Control Circuit', severity: 'Info', cause: 'MIL circuit open or short', fix: 'Check MIL wiring and bulb' },
+  P0660: { description: 'Intake Manifold Tuning Valve Control Circuit (Bank 1)', severity: 'Warning', cause: 'IMT valve circuit fault', fix: 'Check IMT solenoid and wiring' },
+  P0685: { description: 'ECM/PCM Power Relay Control Circuit', severity: 'Critical', cause: 'ECU power relay failure', fix: 'Replace ECU power relay' },
+  P0688: { description: 'ECM/PCM Power Relay Sense Circuit High', severity: 'Warning', cause: 'Power relay circuit issue', fix: 'Check ECU power relay and wiring' },
+  P0750: { description: 'Shift Solenoid A Malfunction', severity: 'Warning', cause: 'Shift solenoid A faulty or stuck', fix: 'Replace shift solenoid A, check fluid' },
+  P0755: { description: 'Shift Solenoid B Malfunction', severity: 'Warning', cause: 'Shift solenoid B faulty or stuck', fix: 'Replace shift solenoid B, check fluid' },
+  P0760: { description: 'Shift Solenoid C Malfunction', severity: 'Warning', cause: 'Shift solenoid C faulty or stuck', fix: 'Replace shift solenoid C, check fluid' },
+  P0765: { description: 'Shift Solenoid D Malfunction', severity: 'Warning', cause: 'Shift solenoid D faulty or stuck', fix: 'Replace shift solenoid D, check fluid' },
+  P0770: { description: 'Shift Solenoid E Malfunction', severity: 'Warning', cause: 'Shift solenoid E faulty or stuck', fix: 'Replace shift solenoid E, check fluid' },
+  P0780: { description: 'Shift Malfunction', severity: 'Warning', cause: 'Transmission shift issue', fix: 'Check transmission fluid and solenoids' },
+  P0840: { description: 'Transmission Fluid Pressure Sensor Circuit', severity: 'Warning', cause: 'Fluid pressure sensor fault', fix: 'Check transmission fluid level and sensor' },
+  P0868: { description: 'Transmission Fluid Pressure Low', severity: 'Warning', cause: 'Low transmission fluid pressure', fix: 'Check fluid level, pump, and filter' },
+  P0882: { description: 'TCM Power Input Signal Low', severity: 'Warning', cause: 'TCM power supply low', fix: 'Check TCM power and ground circuits' },
+  P0900: { description: 'Clutch Actuator Circuit Open', severity: 'Warning', cause: 'Clutch actuator circuit fault', fix: 'Check clutch actuator and wiring' },
+  P0930: { description: 'Gear Shift Lock Solenoid Circuit', severity: 'Warning', cause: 'Gear shift lock solenoid issue', fix: 'Check shift lock solenoid' },
+};
+
 // Honda-specific fault codes
 const HONDA_CODES = {
   P1106: { description: 'Barometric Pressure Circuit Range/Performance', severity: 'Warning', cause: 'BARO sensor issue', fix: 'Check barometric pressure sensor' },
@@ -147,63 +173,156 @@ const HONDA_CODES = {
   P1768: { description: 'AT Clutch Pressure Control Solenoid Valve A', severity: 'Warning', cause: 'Transmission solenoid issue', fix: 'Check transmission solenoid valve' },
 };
 
+// ─── Suzuki-specific fault codes ──────────────────────────────────────────────
+const SUZUKI_CODES = {
+  P1250: { description: 'Pressure Regulator Control Solenoid Valve', severity: 'Warning', cause: 'Pressure regulator solenoid fault', fix: 'Check pressure regulator solenoid' },
+  P1410: { description: 'EGR Valve Lift Sensor Circuit', severity: 'Warning', cause: 'EGR lift sensor fault', fix: 'Check EGR valve and sensor' },
+  P1450: { description: 'Barometric Pressure Sensor Performance', severity: 'Warning', cause: 'BARO sensor out of range', fix: 'Replace barometric pressure sensor' },
+  P1480: { description: 'Cooling Fan Relay Circuit', severity: 'Warning', cause: 'Cooling fan relay fault', fix: 'Check cooling fan relay and wiring' },
+  P1510: { description: 'Throttle Actuator Control System', severity: 'Critical', cause: 'Electronic throttle system failure', fix: 'Check throttle body and ETC module' },
+  P1515: { description: 'Throttle Position Correlation', severity: 'Warning', cause: 'TPS correlation error', fix: 'Check throttle body and TPS' },
+  P1601: { description: 'Serial Communication with TCM Error', severity: 'Warning', cause: 'ECU-TCM communication fault', fix: 'Check ECU and TCM wiring' },
+  P1685: { description: 'Immobilizer Wrong Key', severity: 'Critical', cause: 'Unregistered key transponder', fix: 'Register key at dealership' },
+};
+
+// ─── Mitsubishi-specific fault codes ──────────────────────────────────────────
+const MITSUBISHI_CODES = {
+  P1100: { description: 'Induction Control Motor Position Sensor', severity: 'Warning', cause: 'Induction control motor sensor fault', fix: 'Check induction control motor' },
+  P1300: { description: 'Ignition Timing Adjustment Signal', severity: 'Warning', cause: 'Timing adjustment circuit fault', fix: 'Check ignition timing circuit' },
+  P1400: { description: 'Manifold Differential Pressure Sensor', severity: 'Warning', cause: 'MDP sensor fault', fix: 'Check manifold differential pressure sensor' },
+  P1500: { description: 'Alternator FR Terminal Circuit', severity: 'Warning', cause: 'Alternator FR circuit issue', fix: 'Check alternator and charging circuit' },
+  P1600: { description: 'RAM / ROM Error in ECU', severity: 'Critical', cause: 'ECU memory error', fix: 'Replace or reprogram ECU' },
+  P1715: { description: 'Pulse Generator (A) Assembly', severity: 'Warning', cause: 'Pulse generator A fault', fix: 'Check pulse generator A assembly' },
+  P1750: { description: 'Variable Shift Control Solenoid', severity: 'Warning', cause: 'Variable shift solenoid fault', fix: 'Check shift control solenoid and fluid' },
+  P1791: { description: 'Engine Coolant Temperature Level Input Circuit', severity: 'Warning', cause: 'TCM coolant temp input fault', fix: 'Check coolant temp sensor and wiring to TCM' },
+};
+
+// ─── Hyundai/Kia-specific fault codes ─────────────────────────────────────────
+const HYUNDAI_KIA_CODES = {
+  P1100: { description: 'Manifold Absolute Pressure Sensor Fault', severity: 'Warning', cause: 'MAP sensor circuit fault', fix: 'Check MAP sensor and wiring' },
+  P1115: { description: 'Engine Coolant Temperature Circuit (High Input)', severity: 'Warning', cause: 'ECT sensor high signal', fix: 'Check coolant temperature sensor' },
+  P1250: { description: 'Fuel Pressure Regulator Control Solenoid', severity: 'Warning', cause: 'Fuel pressure solenoid fault', fix: 'Check fuel pressure regulator solenoid' },
+  P1307: { description: 'Chassis Acceleration Sensor Signal', severity: 'Warning', cause: 'Acceleration sensor circuit fault', fix: 'Check chassis acceleration sensor' },
+  P1345: { description: 'SGC (Crankshaft Cam Correlation)', severity: 'Warning', cause: 'Cam/crank signal correlation error', fix: 'Check cam and crank position sensors' },
+  P1402: { description: 'EGR System Fault', severity: 'Warning', cause: 'EGR valve malfunction', fix: 'Clean or replace EGR valve' },
+  P1529: { description: 'Immobilizer Transponder Absent', severity: 'Critical', cause: 'Key transponder not detected', fix: 'Check key transponder and immobilizer module' },
+  P1600: { description: 'Battery Reset Detected', severity: 'Info', cause: 'Battery was disconnected', fix: 'Drive cycle to reset adaptive values' },
+  P1611: { description: 'MIL Request Circuit Low', severity: 'Info', cause: 'MIL control circuit low', fix: 'Check MIL wiring' },
+  P1614: { description: 'Immobilizer Communication', severity: 'Critical', cause: 'Immobilizer communication error', fix: 'Check immobilizer module and wiring' },
+  P1693: { description: 'Transponder No Response / Invalid', severity: 'Critical', cause: 'Key transponder fault', fix: 'Replace key transponder or program new key' },
+  P1750: { description: 'Hydraulic Pressure Test Failed', severity: 'Warning', cause: 'Transmission hydraulic pressure fault', fix: 'Check transmission fluid and pressure solenoids' },
+};
+
+// ─── BMW-specific fault codes ──────────────────────────────────────────────────
+const BMW_CODES = {
+  P1083: { description: 'Fuel Control (Bank 1) — Mixture Too Lean at Full Load', severity: 'Warning', cause: 'Lean mixture under load', fix: 'Check fuel injectors, fuel pressure, MAF sensor' },
+  P1085: { description: 'Fuel Control (Bank 2) — Mixture Too Lean at Full Load', severity: 'Warning', cause: 'Lean mixture bank 2 under load', fix: 'Check fuel injectors and fuel system bank 2' },
+  P1128: { description: 'Long Term Fuel Trim Lean (Bank 1)', severity: 'Warning', cause: 'Persistent lean condition bank 1', fix: 'Check MAF sensor, vacuum leaks, fuel pressure' },
+  P1129: { description: 'Long Term Fuel Trim Rich (Bank 1)', severity: 'Warning', cause: 'Persistent rich condition bank 1', fix: 'Check O2 sensors, injectors, coolant temp sensor' },
+  P1188: { description: 'Fuel Control (Bank 1) — Mixture Too Rich at Idle', severity: 'Warning', cause: 'Rich idle condition', fix: 'Check idle control valve and fuel system' },
+  P1340: { description: 'Misfire Cylinder 1 with Fuel Cut-Off', severity: 'Critical', cause: 'Cylinder 1 misfire with fuel shutoff', fix: 'Check spark plug and ignition coil cylinder 1' },
+  P1386: { description: 'Internal Control Module Knock Control Error', severity: 'Warning', cause: 'Knock control module fault', fix: 'Check knock sensor and ECU' },
+  P1421: { description: 'Secondary Air Injection System (Bank 1)', severity: 'Warning', cause: 'Secondary air pump or valve fault', fix: 'Check secondary air pump and check valve' },
+  P1423: { description: 'Secondary Air Injection System (Bank 2)', severity: 'Warning', cause: 'Secondary air system bank 2 fault', fix: 'Check secondary air system bank 2' },
+  P1624: { description: 'VANOS Solenoid (Intake)', severity: 'Warning', cause: 'Variable valve timing solenoid fault', fix: 'Check VANOS solenoid and oil passages' },
+  P1625: { description: 'VANOS Solenoid (Exhaust)', severity: 'Warning', cause: 'Exhaust VANOS solenoid fault', fix: 'Check exhaust VANOS solenoid' },
+};
+
+// ─── Mercedes-Benz-specific fault codes ────────────────────────────────────────
+const MERCEDES_CODES = {
+  P1105: { description: 'O2 Sensor Heating (Bank 1 Sensor 1)', severity: 'Warning', cause: 'O2 sensor heater fault', fix: 'Replace O2 sensor bank 1 sensor 1' },
+  P1125: { description: 'Throttle Actuator Potentiometer Range', severity: 'Warning', cause: 'Throttle actuator position sensor fault', fix: 'Check throttle actuator position sensor' },
+  P1128: { description: 'O2 Sensor Lean Shift (Bank 1)', severity: 'Warning', cause: 'Lean shift at O2 sensor bank 1', fix: 'Check for vacuum leaks and fuel system' },
+  P1130: { description: 'O2 Sensor Heater Circuit (Bank 1 Sensor 1)', severity: 'Warning', cause: 'Heater circuit fault in O2 sensor', fix: 'Replace O2 sensor' },
+  P1410: { description: 'Tank Ventilation Valve Circuit Short', severity: 'Warning', cause: 'EVAP tank ventilation valve short circuit', fix: 'Check EVAP ventilation valve and wiring' },
+  P1541: { description: 'Fuel Pump Relay Circuit Open', severity: 'Critical', cause: 'Fuel pump relay circuit open', fix: 'Check fuel pump relay and circuit' },
+  P1542: { description: 'Throttle Actuator Adaptation Fault', severity: 'Warning', cause: 'Throttle adaptation failed', fix: 'Perform throttle body adaptation procedure' },
+  P1600: { description: 'Internal Control Module KAM Error', severity: 'Critical', cause: 'Keep-alive memory error in ECU', fix: 'Check battery, replace ECU if persistent' },
+  P1632: { description: 'Throttle Valve Adaptation Fault', severity: 'Warning', cause: 'Throttle valve adaptation not completed', fix: 'Run throttle valve adaptation via diagnostics' },
+};
+
+// ─── Ford-specific fault codes ──────────────────────────────────────────────────
+const FORD_CODES = {
+  P1000: { description: 'OBD Systems Readiness Test Not Complete', severity: 'Info', cause: 'OBD monitors not fully run after battery reset', fix: 'Complete a full drive cycle to run OBD monitors' },
+  P1100: { description: 'MAF Sensor Circuit Intermittent', severity: 'Warning', cause: 'Intermittent MAF sensor signal', fix: 'Check MAF sensor connections and sensor' },
+  P1101: { description: 'MAF Sensor Out of Self-Test Range', severity: 'Warning', cause: 'MAF sensor reading out of range', fix: 'Clean or replace MAF sensor' },
+  P1120: { description: 'Throttle Position Sensor Out of Range', severity: 'Warning', cause: 'TPS signal too low or high', fix: 'Check throttle body and TPS sensor' },
+  P1233: { description: 'Fuel System Disabled or Off-Line', severity: 'Critical', cause: 'Fuel system shutoff', fix: 'Check inertia switch and fuel pump circuit' },
+  P1260: { description: 'Theft Detected — Engine Disabled', severity: 'Critical', cause: 'PATS anti-theft active', fix: 'Check PATS key programming at dealership' },
+  P1285: { description: 'Cylinder Head Over-Temperature Sensed', severity: 'Critical', cause: 'Engine overheating — head temperature critical', fix: 'Stop driving immediately, check cooling system' },
+  P1380: { description: 'Variable Cam Timing Solenoid A Circuit Malfunction', severity: 'Warning', cause: 'VCT solenoid A fault', fix: 'Check VCT solenoid and oil passages' },
+  P1381: { description: 'Variable Cam Timing Over-Advanced (Bank 1)', severity: 'Warning', cause: 'Cam timing over-advanced bank 1', fix: 'Check VCT oil control valve and timing chain' },
+  P1383: { description: 'Variable Cam Timing Over-Retarded (Bank 1)', severity: 'Warning', cause: 'Cam timing over-retarded bank 1', fix: 'Check VCT system and oil level' },
+  P1450: { description: 'Unable to Bleed Up Fuel Tank Vacuum', severity: 'Warning', cause: 'EVAP system cannot bleed tank vacuum', fix: 'Check EVAP canister and purge valve' },
+  P1605: { description: 'Powertrain Control Module Keep Alive Memory Error', severity: 'Warning', cause: 'PCM KAM error', fix: 'Check battery connection, update PCM calibration' },
+};
+
+// Master brand lookup map
+const BRAND_DB_MAP = {
+  toyota:     TOYOTA_CODES,
+  nissan:     NISSAN_CODES,
+  honda:      HONDA_CODES,
+  suzuki:     SUZUKI_CODES,
+  mitsubishi: MITSUBISHI_CODES,
+  hyundai:    HYUNDAI_KIA_CODES,
+  kia:        HYUNDAI_KIA_CODES,
+  bmw:        BMW_CODES,
+  mercedes:   MERCEDES_CODES,
+  ford:       FORD_CODES,
+};
+
+// All P1xxx databases iterated for generic lookup
+const ALL_BRAND_DBS = [
+  ['Toyota', TOYOTA_CODES],
+  ['Nissan', NISSAN_CODES],
+  ['Honda', HONDA_CODES],
+  ['Suzuki', SUZUKI_CODES],
+  ['Mitsubishi', MITSUBISHI_CODES],
+  ['Hyundai', HYUNDAI_KIA_CODES],
+  ['BMW', BMW_CODES],
+  ['Mercedes', MERCEDES_CODES],
+  ['Ford', FORD_CODES],
+];
+
 /**
  * Look up fault code information
  * @param {string} code - The fault code (e.g., 'P0301')
- * @param {string} brand - Vehicle brand ('Toyota', 'Nissan', 'Honda', or null for generic)
+ * @param {string} brand - Vehicle brand or null for generic lookup
  * @returns {{ code, description, severity, cause, fix, brand }}
  */
 export function getCodeInfo(code, brand = null) {
   const upperCode = code.toUpperCase();
 
-  // Check brand-specific codes first (P1xxx range)
+  // 1. Check brand-specific DB first
   if (brand) {
-    const brandLower = brand.toLowerCase();
-    let brandDB = null;
-
-    if (brandLower === 'toyota') brandDB = TOYOTA_CODES;
-    else if (brandLower === 'nissan') brandDB = NISSAN_CODES;
-    else if (brandLower === 'honda') brandDB = HONDA_CODES;
-
-    if (brandDB && brandDB[upperCode]) {
-      return {
-        code: upperCode,
-        ...brandDB[upperCode],
-        brand: brand,
-      };
+    const db = BRAND_DB_MAP[brand.toLowerCase()];
+    if (db && db[upperCode]) {
+      return { code: upperCode, ...db[upperCode], brand };
     }
   }
 
-  // Check all brand databases for P1xxx codes
+  // 2. Scan all brand DBs for P1xxx codes
   if (upperCode.startsWith('P1')) {
-    for (const [brandName, db] of [
-      ['Toyota', TOYOTA_CODES],
-      ['Nissan', NISSAN_CODES],
-      ['Honda', HONDA_CODES],
-    ]) {
+    for (const [brandName, db] of ALL_BRAND_DBS) {
       if (db[upperCode]) {
-        return {
-          code: upperCode,
-          ...db[upperCode],
-          brand: brandName,
-        };
+        return { code: upperCode, ...db[upperCode], brand: brandName };
       }
     }
   }
 
-  // Check standard codes
-  if (STANDARD_CODES[upperCode]) {
-    return {
-      code: upperCode,
-      ...STANDARD_CODES[upperCode],
-      brand: 'Generic OBD-II',
-    };
+  // 3. Check extended standard codes (P0600–P0999)
+  if (STANDARD_CODES_EXTENDED[upperCode]) {
+    return { code: upperCode, ...STANDARD_CODES_EXTENDED[upperCode], brand: 'Generic OBD-II' };
   }
 
-  // Generate generic info for unknown codes
+  // 4. Check core standard codes
+  if (STANDARD_CODES[upperCode]) {
+    return { code: upperCode, ...STANDARD_CODES[upperCode], brand: 'Generic OBD-II' };
+  }
+
+  // 5. Generate generic fallback
   const codeType = upperCode[0];
   const types = { P: 'Powertrain', C: 'Chassis', B: 'Body', U: 'Network' };
-
   return {
     code: upperCode,
     description: `${types[codeType] || 'Unknown'} Fault Code ${upperCode}`,
@@ -218,7 +337,7 @@ export function getCodeInfo(code, brand = null) {
  * Get all supported brands
  */
 export function getSupportedBrands() {
-  return ['Toyota', 'Nissan', 'Honda'];
+  return ['Toyota', 'Nissan', 'Honda', 'Suzuki', 'Mitsubishi', 'Hyundai', 'Kia', 'BMW', 'Mercedes', 'Ford'];
 }
 
 /**

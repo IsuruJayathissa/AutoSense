@@ -354,6 +354,10 @@ const parseSupportedPIDs = (rawData, baseHex) => {
   }
 };
 
+const AUTO_RECONNECT_MAX  = 4;
+const AUTO_RECONNECT_DELAY = 3000; // ms between attempts
+const HEARTBEAT_INTERVAL   = 15000; // ms — sends 0100 ping to confirm link is alive
+
 class OBDService {
   constructor() {
     this.device = null;
@@ -367,11 +371,20 @@ class OBDService {
     this.isProcessing = false;
     this.connectionListeners = [];
     this.disconnectSubscription = null;
-    this.supportedPIDs = new Set(); // populated during connect() PID discovery
+    this.supportedPIDs = new Set();
+
+    // Auto-reconnect state
+    this.lastDeviceId = null;
+    this._reconnectTimer = null;
+    this._reconnectAttempts = 0;
+    this.autoReconnect = false;
+
+    // Heartbeat
+    this._heartbeatTimer = null;
+    this._heartbeatFailed = 0;
   }
 
   _isPIDSupported(pidHex) {
-    // If discovery hasn't run yet (empty set), allow all PIDs
     if (this.supportedPIDs.size === 0) return true;
     return this.supportedPIDs.has(pidHex.toUpperCase());
   }
@@ -388,8 +401,90 @@ class OBDService {
     this.connectionListeners.forEach(cb => cb(connected));
   }
 
+  // ── Auto-reconnect public API ──────────────────────────────────────────────
+  setAutoReconnect(enabled) {
+    this.autoReconnect = enabled;
+    if (!enabled) this._cancelReconnect();
+  }
+
+  // ── Schedule a reconnect attempt after disconnect ──────────────────────────
+  _scheduleReconnect() {
+    if (!this.autoReconnect || !this.lastDeviceId) return;
+    if (this._reconnectAttempts >= AUTO_RECONNECT_MAX) {
+      console.log('OBD: Auto-reconnect exhausted after', AUTO_RECONNECT_MAX, 'attempts');
+      this._reconnectAttempts = 0;
+      // Surface to UI via a special listener value
+      this.connectionListeners.forEach(cb => cb(false, 'exhausted'));
+      return;
+    }
+
+    this._reconnectAttempts++;
+    console.log(`OBD: Scheduling reconnect attempt ${this._reconnectAttempts}/${AUTO_RECONNECT_MAX} in ${AUTO_RECONNECT_DELAY}ms`);
+    this._reconnectTimer = setTimeout(async () => {
+      if (this.isConnected) return; // already reconnected by user
+      console.log(`OBD: Auto-reconnect attempt ${this._reconnectAttempts}`);
+      try {
+        const success = await this.connect(this.lastDeviceId);
+        if (success) {
+          console.log('OBD: Auto-reconnect succeeded');
+          this._reconnectAttempts = 0;
+          // notify listeners with a special flag so UI can show a toast
+          this.connectionListeners.forEach(cb => cb(true, 'auto'));
+        } else {
+          this._scheduleReconnect();
+        }
+      } catch (e) {
+        console.warn('OBD: Auto-reconnect error:', e.message);
+        this._scheduleReconnect();
+      }
+    }, AUTO_RECONNECT_DELAY);
+  }
+
+  _cancelReconnect() {
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+    this._reconnectAttempts = 0;
+  }
+
+  // ── Heartbeat: pings the ECU every 15s to detect silent drops ─────────────
+  _startHeartbeat() {
+    this._stopHeartbeat();
+    this._heartbeatFailed = 0;
+    this._heartbeatTimer = setInterval(async () => {
+      if (!this.isConnected) { this._stopHeartbeat(); return; }
+      try {
+        const r = await this._sendRawCommand('0100\r');
+        const ok = r && !r.toUpperCase().includes('ERROR') && !r.toUpperCase().includes('UNABLE');
+        if (ok) {
+          this._heartbeatFailed = 0;
+        } else {
+          this._heartbeatFailed++;
+          console.warn(`OBD: Heartbeat miss #${this._heartbeatFailed}`);
+          if (this._heartbeatFailed >= 2) {
+            console.error('OBD: Heartbeat failed twice — treating as disconnected');
+            this._stopHeartbeat();
+            this._notifyConnectionChange(false);
+            this._scheduleReconnect();
+          }
+        }
+      } catch (e) {
+        console.warn('OBD: Heartbeat error:', e.message);
+      }
+    }, HEARTBEAT_INTERVAL);
+  }
+
+  _stopHeartbeat() {
+    if (this._heartbeatTimer) {
+      clearInterval(this._heartbeatTimer);
+      this._heartbeatTimer = null;
+    }
+  }
+
   // ── Connect ────────────────────────────────────────────────────────────────
   async connect(deviceId) {
+    this._cancelReconnect(); // clear any pending reconnect before fresh connect
     try {
       this.device = await manager.connectToDevice(deviceId, { requestMTU: 512, timeout: 10000 });
       await this.device.discoverAllServicesAndCharacteristics();
@@ -439,9 +534,11 @@ class OBDService {
 
       this.disconnectSubscription = this.device.onDisconnected(() => {
         console.log('OBD: Device disconnected');
+        this._stopHeartbeat();
         this._notifyConnectionChange(false);
         this.device = null;
         this.supportedPIDs = new Set();
+        this._scheduleReconnect();
       });
 
       // ELM327 initialisation sequence
@@ -506,7 +603,9 @@ class OBDService {
       console.log('OBD: PIDs 61-80 supported:', [...pids0160]);
 
       console.log('OBD: Total supported PIDs:', this.supportedPIDs.size);
+      this.lastDeviceId = deviceId;
       this._notifyConnectionChange(true);
+      this._startHeartbeat();
       return true;
     } catch (error) {
       console.error('OBD Connect Error:', error.message);
@@ -733,8 +832,10 @@ class OBDService {
     }
   }
 
-  // ── Disconnect ────────────────────────────────────────────────────────────
+  // ── Disconnect (user-initiated — disables auto-reconnect for this call) ────
   disconnect() {
+    this._stopHeartbeat();
+    this._cancelReconnect();
     try {
       if (this.disconnectSubscription) {
         this.disconnectSubscription.remove();
