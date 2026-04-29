@@ -36,6 +36,10 @@ export default function OBDConnectionScreen({ navigation }) {
   const scanTimeoutRef = useRef(null);
 
   useEffect(() => {
+    // If OBD is already connected when screen opens, go straight to Home
+    if (OBDService.isConnected) {
+      navigation.navigate('Home');
+    }
     return () => {
       manager.stopDeviceScan();
       if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
@@ -165,11 +169,10 @@ export default function OBDConnectionScreen({ navigation }) {
       const success = await OBDService.connect(device.id);
 
       if (success) {
-        setConnectedDevice(device);
-        setConnected(true);
         setConnecting(false);
-        setRetryCount(0);
         setStatus('Connected!');
+        // Brief pause so user sees "Connected!" then go back to Home
+        setTimeout(() => navigation.navigate('Home'), 800);
       } else {
         throw new Error('OBD-II initialisation failed');
       }

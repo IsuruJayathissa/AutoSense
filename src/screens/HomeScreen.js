@@ -302,40 +302,84 @@ export default function HomeScreen({ navigation }) {
           </View>
 
           {/* OBD Connection Card */}
-          <View style={styles.obdCard}>
+          <View style={[styles.obdCard, obdConnected && styles.obdCardConnected]}>
             <LinearGradient
-              colors={['#8B0000', '#A00000']}
+              colors={obdConnected ? ['#10B981', '#059669'] : ['#8B0000', '#A00000']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={styles.obdCardBorder}
             />
             <View style={styles.obdHeader}>
-              <View style={styles.obdIconCircle}>
-                <Ionicons name="bluetooth-outline" size={24} color="#1F2937" />
+              <View style={[styles.obdIconCircle, obdConnected && { backgroundColor: '#ECFDF5' }]}>
+                <Ionicons
+                  name={obdConnected ? 'bluetooth' : 'bluetooth-outline'}
+                  size={24}
+                  color={obdConnected ? '#10B981' : '#1F2937'}
+                />
               </View>
               <View style={styles.obdInfo}>
                 <Text style={styles.obdTitle}>OBD-II Connection</Text>
                 <View style={styles.obdStatus}>
-                  <View style={styles.obdStatusDot} />
-                  <Text style={styles.obdStatusText}>Not Connected</Text>
+                  <View style={[styles.obdStatusDot, { backgroundColor: obdConnected ? '#10B981' : '#EF4444' }]} />
+                  <Text style={[styles.obdStatusText, { color: obdConnected ? '#10B981' : '#EF4444' }]}>
+                    {obdConnected ? 'Connected' : 'Not Connected'}
+                  </Text>
                 </View>
               </View>
+              {obdConnected && (
+                <View style={styles.obdLiveBadge}>
+                  <View style={styles.obdLiveDot} />
+                  <Text style={styles.obdLiveText}>LIVE</Text>
+                </View>
+              )}
             </View>
-            <TouchableOpacity
-              style={styles.obdConnectButton}
-              onPress={() => navigation.navigate('OBDConnection')}
-              activeOpacity={0.8}
-            >
-              <LinearGradient
-                colors={['#8B0000', '#A00000']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.obdButtonGradient}
+
+            {obdConnected ? (
+              <View style={styles.obdConnectedActions}>
+                <TouchableOpacity
+                  style={styles.obdActionBtn}
+                  onPress={() => navigation.navigate('Dashboard')}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={['#10B981', '#059669']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.obdButtonGradient}
+                  >
+                    <Ionicons name="speedometer-outline" size={20} color="#FFFFFF" />
+                    <Text style={styles.obdButtonText}>View Dashboard</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.obdDisconnectBtn}
+                  onPress={() => {
+                    OBDService.disconnect();
+                    setObdConnected(false);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="close-circle-outline" size={18} color="#EF4444" />
+                  <Text style={styles.obdDisconnectText}>Disconnect</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.obdConnectButton}
+                onPress={() => navigation.navigate('OBDConnection')}
+                activeOpacity={0.8}
               >
-                <Ionicons name="link-outline" size={20} color="#FFFFFF" />
-                <Text style={styles.obdButtonText}>Connect Device</Text>
-              </LinearGradient>
-            </TouchableOpacity>
+                <LinearGradient
+                  colors={['#8B0000', '#A00000']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.obdButtonGradient}
+                >
+                  <Ionicons name="link-outline" size={20} color="#FFFFFF" />
+                  <Text style={styles.obdButtonText}>Connect Device</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={{ height: 30 }} />
@@ -477,6 +521,10 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
   },
+  obdCardConnected: {
+    borderColor: '#10B981',
+    backgroundColor: '#F0FDF4',
+  },
   obdCardBorder: { position: 'absolute', top: 0, left: 0, right: 0, height: 4 },
   obdHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   obdIconCircle: {
@@ -489,6 +537,20 @@ const styles = StyleSheet.create({
   obdStatus: { flexDirection: 'row', alignItems: 'center' },
   obdStatusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#8B0000', marginRight: 6 },
   obdStatusText: { fontSize: 13, color: '#EF4444', fontWeight: '500' },
+  obdLiveBadge: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#DCFCE7', paddingHorizontal: 10,
+    paddingVertical: 5, borderRadius: 10, gap: 5,
+  },
+  obdLiveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981' },
+  obdLiveText: { fontSize: 11, fontWeight: '800', color: '#10B981' },
+  obdConnectedActions: { gap: 10 },
+  obdActionBtn: { borderRadius: 12, overflow: 'hidden' },
+  obdDisconnectBtn: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 6, paddingVertical: 10,
+  },
+  obdDisconnectText: { fontSize: 14, fontWeight: '600', color: '#EF4444' },
   obdConnectButton: { borderRadius: 12, overflow: 'hidden' },
   obdButtonGradient: {
     flexDirection: 'row', alignItems: 'center',

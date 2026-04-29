@@ -560,13 +560,18 @@ class OBDService {
       let r0100 = await this.sendCommand('0100\r');
       console.log('OBD: 0100 response:', r0100);
 
-      // Wait out SEARCHING... (ELM327 still detecting protocol)
+      // Wait out SEARCHING... or 7F negative response (ECU not ready yet)
       let retries = 0;
-      while (retries < 5) {
+      while (retries < 8) {
         const up = (r0100 || '').toUpperCase();
-        if (!up || up.includes('SEARCHING') || up.includes('TRYINGPROT')) {
-          console.log(`OBD: Protocol searching, waiting... (${retries + 1}/5)`);
-          await this._delay(2000);
+        if (!up || up.includes('SEARCHING') || up.includes('TRYINGPROT') || up.startsWith('7F')) {
+          console.log(`OBD: ECU not ready (${up.substring(0, 12) || 'empty'}), waiting... (${retries + 1}/8)`);
+          await this._delay(3000);
+          // Re-send protocol init before retrying — helps with slow ECUs
+          if (retries === 3) {
+            await this._sendRawCommand(AT_COMMANDS.AUTO_PROTOCOL);
+            await this._delay(2000);
+          }
           r0100 = await this.sendCommand('0100\r');
           console.log(`OBD: 0100 retry (${retries + 1}):`, r0100);
           retries++;
@@ -576,8 +581,8 @@ class OBDService {
       }
 
       const up0100 = (r0100 || '').toUpperCase();
-      if (!up0100 || up0100.includes('NODATA') || up0100.includes('UNABLE')) {
-        console.error('OBD: ECU not responding to 0100');
+      if (!up0100 || up0100.includes('NODATA') || up0100.includes('UNABLE') || up0100.startsWith('7F')) {
+        console.error('OBD: ECU not responding after retries — final response:', r0100);
         this.disconnect();
         return false;
       }
