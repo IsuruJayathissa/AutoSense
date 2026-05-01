@@ -159,11 +159,27 @@ const getParamStatus = (param, value) => {
 // ─────────────────────────────────────────────────────────────────────────────
 //  MAIN COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
+// Classify the engine's running state so we don't compute a fake "Excellent"
+// score on a connection that has no real data.
+const detectEngineState = (history) => {
+  if (OBDService.lastConnectError &&
+      /live data|Mode 01|service not supported|proprietary/i.test(OBDService.lastConnectError)) {
+    return 'unsupported';
+  }
+  if (!history || history.length < 2) return 'unknown';
+  const recent = history.slice(-3);
+  const anyRpm   = recent.some(s => (s.rpm || 0) > 300);
+  const altVolts = recent.some(s => (s.battery || 0) > 13);
+  if (anyRpm || altVolts) return 'running';
+  return 'off';
+};
+
 export default function EngineHealthScreen({ navigation }) {
   const [parameters, setParameters] = useState(null);
-  const [healthResult, setHealthResult] = useState({ score: 100, issues: [], sampleCount: 0 });
+  const [healthResult, setHealthResult] = useState({ score: 0, issues: [], sampleCount: 0 });
   const [sessionReadings, setSessionReadings] = useState([]);
   const [isConnected, setIsConnected] = useState(OBDService.isConnected);
+  const [engineState, setEngineState] = useState('unknown');
   const [lastUpdated, setLastUpdated] = useState(null);
   const intervalRef = useRef(null);
 
@@ -195,10 +211,19 @@ export default function EngineHealthScreen({ navigation }) {
         setParameters(snapshot);
         setLastUpdated(new Date());
 
-        // Keep rolling window of last 20 readings for session-based scoring
+        // Keep rolling window of last 20 readings for session-based scoring.
+        // Only score readings where the engine was actually running, so we
+        // don't report 100/100 health on a stack of empty zeros.
         setSessionReadings(prev => {
           const next = [...prev, snapshot].slice(-20);
-          setHealthResult(calculateHealthScore(next));
+          const state = detectEngineState(next);
+          setEngineState(state);
+          if (state === 'running') {
+            const runningOnly = next.filter(r => (r.rpm || 0) > 300 || (r.battery || 0) > 13);
+            setHealthResult(calculateHealthScore(runningOnly));
+          } else {
+            setHealthResult({ score: 0, issues: [], sampleCount: 0 });
+          }
           return next;
         });
       } catch (e) {
@@ -298,6 +323,53 @@ export default function EngineHealthScreen({ navigation }) {
       </View>
     </View>
   );
+
+  // ── Engine off / not running ──────────────────────────────────────────────
+  // When connected but the engine isn't running we have no meaningful health
+  // signal. Show a clear prompt instead of fabricating a "100/100" score.
+  if (isConnected && (engineState === 'off' || engineState === 'unsupported')) {
+    const isUnsupported = engineState === 'unsupported';
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.header}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+              <Ionicons name="arrow-back" size={24} color="#1F2937" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Engine Health</Text>
+            <View style={{ width: 40 }} />
+          </View>
+          <View style={styles.notConnectedBox}>
+            <Ionicons
+              name={isUnsupported ? 'alert-circle-outline' : 'key-outline'}
+              size={56}
+              color={isUnsupported ? '#9CA3AF' : '#F59E0B'}
+            />
+            <Text style={styles.notConnectedTitle}>
+              {isUnsupported ? 'Live Data Not Supported' : 'Start the Engine'}
+            </Text>
+            <Text style={styles.notConnectedSub}>
+              {isUnsupported
+                ? 'This vehicle does not expose Mode 01 live PIDs over OBD-II. Health analysis requires real-time sensor data, which this ECU does not provide.'
+                : 'Engine health analysis needs live sensor data (RPM, coolant, load, etc.). Start the engine and let it idle for a few seconds — readings will begin automatically.'}
+            </Text>
+            {!isUnsupported && (
+              <TouchableOpacity
+                style={styles.connectBtn}
+                onPress={() => navigation.navigate('FaultCodes')}
+              >
+                <LinearGradient colors={['#8B0000', '#A00000']} style={styles.connectBtnGradient}>
+                  <Ionicons name="search" size={20} color="#FFFFFF" />
+                  <Text style={styles.connectBtnText}>Scan Fault Codes Instead</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   // ── Not connected state ───────────────────────────────────────────────────
   if (!isConnected) {

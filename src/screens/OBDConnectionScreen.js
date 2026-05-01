@@ -174,20 +174,23 @@ export default function OBDConnectionScreen({ navigation }) {
         // Brief pause so user sees "Connected!" then go back to Home
         setTimeout(() => navigation.navigate('Home'), 800);
       } else {
-        throw new Error('OBD-II initialisation failed');
+        throw new Error(OBDService.lastConnectError || 'OBD-II initialisation failed');
       }
     } catch (error) {
-      if (attempt < MAX_RETRY) {
+      const reason = OBDService.lastConnectError || error.message;
+      // If the ECU itself is unreachable, retrying won't help — fail fast.
+      const ecuUnreachable = /ECU|ignition|vehicle|negative response|not respond/i.test(reason);
+
+      if (attempt < MAX_RETRY && !ecuUnreachable) {
         setStatus(`Connection failed — retrying in 2s... (${attempt}/${MAX_RETRY})`);
         setTimeout(() => connectWithRetry(device, attempt + 1), RETRY_DELAY_MS);
       } else {
-        // All retries exhausted
         setConnecting(false);
         setRetryCount(0);
-        setStatus('Connection failed after retries');
+        setStatus(ecuUnreachable ? 'ECU not responding' : 'Connection failed after retries');
         Alert.alert(
-          'Connection Failed',
-          `Could not connect to ${device.name} after ${MAX_RETRY} attempts.\n\nMake sure:\n• The device is an ELM327 adapter\n• The car ignition is ON\n• The adapter is firmly plugged in`,
+          ecuUnreachable ? 'Vehicle Not Responding' : 'Connection Failed',
+          reason,
           [
             { text: 'Try Again', onPress: () => connectToDevice(device) },
             { text: 'Cancel', style: 'cancel' },
@@ -198,6 +201,11 @@ export default function OBDConnectionScreen({ navigation }) {
   };
 
   const connectToDevice = async (device) => {
+    // Cancel pending scan timeout so it can't overwrite the "Connecting…" status
+    if (scanTimeoutRef.current) {
+      clearTimeout(scanTimeoutRef.current);
+      scanTimeoutRef.current = null;
+    }
     manager.stopDeviceScan();
     setScanning(false);
     setRetryCount(0);

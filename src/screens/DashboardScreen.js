@@ -12,8 +12,29 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import OBDService from '../services/OBDService';
 
+// Classify the engine's running state from a recent batch of polls.
+//   unsupported: vehicle reported soft-success (no Mode 01 PIDs at all)
+//   off:         consistent zero RPM and no alternator voltage (<13V)
+//   running:     RPM > 300 or alternator voltage detected
+//   unknown:     not enough samples yet
+const detectEngineState = (history) => {
+  if (OBDService.lastConnectError &&
+      /live data|Mode 01|service not supported|proprietary/i.test(OBDService.lastConnectError)) {
+    return 'unsupported';
+  }
+  if (!history || history.length < 2) return 'unknown';
+  const recent = history.slice(-3);
+  const anyRpm    = recent.some(s => (s.rpm || 0) > 300);
+  const altVolts  = recent.some(s => (s.voltage || 0) > 13);
+  if (anyRpm || altVolts) return 'running';
+  // All recent samples have rpm=0 and voltage<13 → engine is off
+  return 'off';
+};
+
 export default function DashboardScreen({ navigation }) {
   const [obdConnected, setObdConnected] = useState(OBDService.isConnected);
+  const [engineState, setEngineState] = useState('unknown');
+  const [demoMode, setDemoModeUI] = useState(OBDService.demoMode);
 
   const [sensorData, setSensorData] = useState({
     rpm: 0,
@@ -26,6 +47,7 @@ export default function DashboardScreen({ navigation }) {
   });
 
   const intervalRef = useRef(null);
+  const historyRef = useRef([]); // last few polls, used for engine-state detection
 
   useEffect(() => {
     const unsubscribe = OBDService.onConnectionChange((connected) => {
@@ -34,10 +56,12 @@ export default function DashboardScreen({ navigation }) {
         startRealDataPolling();
       } else {
         if (intervalRef.current) clearInterval(intervalRef.current);
+        historyRef.current = [];
+        setEngineState('unknown');
       }
     });
 
-    if (OBDService.isConnected) startRealDataPolling();
+    if (OBDService.isConnected || OBDService.demoMode) startRealDataPolling();
 
     return () => {
       unsubscribe();
@@ -50,8 +74,23 @@ export default function DashboardScreen({ navigation }) {
       const data = await OBDService.getSensorData();
       if (data) {
         setSensorData(data);
+        historyRef.current = [...historyRef.current, data].slice(-5);
+        setEngineState(detectEngineState(historyRef.current));
       }
     }, 2000);
+  };
+
+  const toggleDemoMode = () => {
+    const next = !OBDService.demoMode;
+    OBDService.setDemoMode(next);
+    setDemoModeUI(next);
+    if (next) {
+      // Clear stale soft-success state so the engine-off banner doesn't show in demo
+      OBDService.lastConnectError = null;
+      historyRef.current = [];
+      setEngineState('running');
+      if (!intervalRef.current) startRealDataPolling();
+    }
   };
 
 
@@ -104,15 +143,19 @@ export default function DashboardScreen({ navigation }) {
           </TouchableOpacity>
           
           <Text style={styles.headerTitle}>Live Dashboard</Text>
-          
-          <View style={[styles.statusBadge, {
-            backgroundColor: obdConnected ? '#10B981' : '#F59E0B'
-          }]}>
+
+          <TouchableOpacity
+            onPress={toggleDemoMode}
+            activeOpacity={0.7}
+            style={[styles.statusBadge, {
+              backgroundColor: demoMode ? '#8B5CF6' : (obdConnected ? '#10B981' : '#F59E0B'),
+            }]}
+          >
             <View style={styles.statusDot} />
             <Text style={styles.statusBadgeText}>
-              {obdConnected ? 'LIVE' : 'SIM'}
+              {demoMode ? 'DEMO' : (obdConnected ? 'LIVE' : 'SIM')}
             </Text>
-          </View>
+          </TouchableOpacity>
         </View>
 
         <ScrollView 
@@ -138,6 +181,74 @@ export default function DashboardScreen({ navigation }) {
                   <Text style={styles.warningSubtitle}>Tap to connect real OBD-II device</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
+
+          {/* Engine state warnings — only when connected and not in demo */}
+          {!demoMode && obdConnected && engineState === 'off' && (
+            <View style={styles.warningCard}>
+              <LinearGradient
+                colors={['#F59E0B', '#D97706']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.warningGradient}
+              >
+                <Ionicons name="key" size={24} color="#FFFFFF" />
+                <View style={styles.warningTextContainer}>
+                  <Text style={styles.warningTitle}>Start the engine</Text>
+                  <Text style={styles.warningSubtitle}>
+                    Live sensor data is only available when the engine is running.
+                  </Text>
+                </View>
+              </LinearGradient>
+            </View>
+          )}
+
+          {!demoMode && obdConnected && engineState === 'unsupported' && (
+            <TouchableOpacity
+              style={styles.warningCard}
+              onPress={toggleDemoMode}
+              activeOpacity={0.85}
+            >
+              <LinearGradient
+                colors={['#6B7280', '#4B5563']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.warningGradient}
+              >
+                <Ionicons name="information-circle" size={24} color="#FFFFFF" />
+                <View style={styles.warningTextContainer}>
+                  <Text style={styles.warningTitle}>Live data not supported</Text>
+                  <Text style={styles.warningSubtitle}>
+                    This vehicle has no Mode 01 PIDs. Tap to enable Demo Mode for presentation.
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
+
+          {/* Demo mode banner */}
+          {demoMode && (
+            <TouchableOpacity
+              style={styles.warningCard}
+              onPress={toggleDemoMode}
+              activeOpacity={0.85}
+            >
+              <LinearGradient
+                colors={['#8B5CF6', '#6D28D9']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.warningGradient}
+              >
+                <Ionicons name="play-circle" size={24} color="#FFFFFF" />
+                <View style={styles.warningTextContainer}>
+                  <Text style={styles.warningTitle}>Demo Mode Active</Text>
+                  <Text style={styles.warningSubtitle}>
+                    Showing simulated sensor values. Tap to disable.
+                  </Text>
+                </View>
               </LinearGradient>
             </TouchableOpacity>
           )}

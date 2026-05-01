@@ -56,6 +56,31 @@ const AT_COMMANDS = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  Toyota Mode 22 DIDs — used by JDM/Asian-export Toyota ECUs that don't
+//  expose Mode 01. These DIDs are reverse-engineered from public sources for
+//  Toyota 1KD-FTV / 2KD-FTV diesel ECUs (Hiace, Hilux, Land Cruiser 70/200).
+//  Not every ECU calibration supports every DID — the connect probe figures
+//  out which ones respond on this specific vehicle.
+// ─────────────────────────────────────────────────────────────────────────────
+const TOYOTA_DIDS = {
+  RPM:               '22110C', // engine RPM
+  COOLANT_TEMP:      '221105', // coolant temp °C
+  SPEED:             '22110D', // vehicle speed km/h
+  THROTTLE:          '221111', // throttle position %
+  ENGINE_LOAD:       '221104', // calculated load %
+  INTAKE_TEMP:       '22110F', // intake air temp °C
+  FUEL_RAIL_PRESS:   '221123', // fuel rail pressure
+  MAF:               '221110', // mass air flow
+  MAP_PRESSURE:      '22110B', // manifold absolute pressure
+  BOOST_PRESSURE:    '221432', // boost / turbo (VNT)
+  TIMING_ADVANCE:    '22110E', // timing
+  CONTROL_VOLTAGE:   '221142', // control module voltage
+};
+
+// Toyota engine-ECU CAN address on 1KD/2KD platforms (11-bit CAN @ 500k)
+const TOYOTA_ENGINE_HEADER = '7E0';
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  OBD-II PID Commands — original + all new sensors
 // ─────────────────────────────────────────────────────────────────────────────
 const COMMANDS = {
@@ -364,6 +389,7 @@ class OBDService {
     this.serviceUUID = null;
     this.writeCharUUID = null;
     this.notifyCharUUID = null;
+    this.writeWithResponse = true; // toggled per-adapter during discovery
     this.isConnected = false;
     this.responseBuffer = '';
     this.responseResolve = null;
@@ -372,6 +398,11 @@ class OBDService {
     this.connectionListeners = [];
     this.disconnectSubscription = null;
     this.supportedPIDs = new Set();
+    this.lastConnectError = null; // human-readable reason the last connect failed
+
+    // Toyota Mode 22 (JOBD proprietary) — set by _tryToyotaCanMode if probe succeeds
+    this.useToyotaMode = false;
+    this.toyotaSupportedDIDs = new Set();
 
     // Auto-reconnect state
     this.lastDeviceId = null;
@@ -382,11 +413,208 @@ class OBDService {
     // Heartbeat
     this._heartbeatTimer = null;
     this._heartbeatFailed = 0;
+
+    // Demo / simulation mode — for presentations on vehicles that don't
+    // expose Mode 01 live data (e.g. JDM Toyota 1KD diesels).
+    this.demoMode = false;
+    this._demoStartedAt = 0;
+  }
+
+  // ── Demo Mode ──────────────────────────────────────────────────────────────
+  setDemoMode(enabled) {
+    this.demoMode = !!enabled;
+    if (enabled) {
+      this._demoStartedAt = Date.now();
+      // Pretend we're "connected" so screens that gate on isConnected render
+      this._notifyConnectionChange(true);
+      console.log('OBD: Demo mode ENABLED — emitting simulated sensor data');
+    } else {
+      console.log('OBD: Demo mode DISABLED');
+      // If there is no real BLE device, drop the synthetic connected flag
+      if (!this.device) this._notifyConnectionChange(false);
+    }
+  }
+
+  // Generates plausible time-varying sensor values for demo/presentation.
+  // Models a 60-second cycle: cold start → warmup → idle → cruise → idle.
+  _generateDemoSensorData() {
+    const t = (Date.now() - this._demoStartedAt) / 1000; // seconds since demo start
+    const cycle = (t % 60) / 60;                          // 0..1 over 60s
+    const wave = Math.sin(cycle * Math.PI * 2);           // -1..1
+    const rev  = Math.sin(cycle * Math.PI * 4);           // faster wave for RPM jitter
+    const rand = (n) => (Math.random() - 0.5) * 2 * n;    // ±n random noise
+
+    // Coolant warms from 25°C to ~90°C over the first 90 seconds, then holds
+    const warmupSec = 90;
+    const coolantTemp = Math.min(90, 25 + (t / warmupSec) * 65) + rand(1.5);
+
+    // Throttle: low at idle, higher at "cruise" phase
+    const throttle = Math.max(0, Math.min(95, 12 + Math.max(0, wave) * 35 + rand(3)));
+
+    // RPM: idles ~820, climbs with throttle, oscillates
+    const rpm = Math.round(820 + throttle * 28 + rev * 60 + rand(40));
+
+    // Speed roughly tracks RPM in 3rd gear-ish
+    const speed = Math.max(0, Math.round((rpm - 800) / 35 + rand(2)));
+
+    // Engine load tracks throttle with a lag
+    const engineLoad = Math.max(8, Math.min(85, throttle * 0.9 + rand(4)));
+
+    // Battery: 12.4V at start (engine off), 13.8-14.2V once "alternator" is on
+    const voltage = parseFloat((t < 2 ? 12.4 : 13.9 + rand(0.15)).toFixed(2));
+
+    // Intake air temp tracks ambient with mild rise
+    const intakeTemp = Math.round(28 + rand(2));
+
+    // MAF: scales with RPM and throttle
+    const maf = parseFloat((3 + (rpm / 1000) * 4 + (throttle / 100) * 5 + rand(0.5)).toFixed(1));
+
+    // Timing advance: typical 5-25° BTDC at part throttle
+    const timing = Math.round(8 + (throttle / 100) * 18 + rand(2));
+
+    // Fuel pressure ~ 320-400 kPa
+    const fuelPressure = Math.round(360 + rand(20));
+
+    // Short-term fuel trim: oscillates ±5%
+    const fuelTrim = parseFloat((wave * 4 + rand(0.8)).toFixed(1));
+
+    // Fuel level: slow drain
+    const fuelLevel = Math.max(15, Math.round(72 - t * 0.05));
+
+    return {
+      rpm, speed,
+      coolantTemp: Math.round(coolantTemp * 10) / 10,
+      throttle: Math.round(throttle),
+      fuelLevel,
+      engineLoad: Math.round(engineLoad),
+      voltage,
+      intakeTemp,
+      maf,
+      timing,
+      fuelPressure,
+      fuelTrim,
+    };
+  }
+
+  _generateDemoExtendedData() {
+    const t = (Date.now() - this._demoStartedAt) / 1000;
+    const cycle = (t % 8) / 8;          // O2 swings every 8s
+    const o2Sin = Math.sin(cycle * Math.PI * 2);
+    const rand = (n) => (Math.random() - 0.5) * 2 * n;
+
+    return {
+      longFuelTrim1:  parseFloat((rand(2)).toFixed(1)),
+      shortFuelTrim2: parseFloat((rand(3)).toFixed(1)),
+      longFuelTrim2:  parseFloat((rand(2)).toFixed(1)),
+      fuelRailPressure: Math.round(38000 + rand(1500)),
+      o2Bank1Sensor1: parseFloat((0.45 + o2Sin * 0.35 + rand(0.05)).toFixed(3)),
+      o2Bank1Sensor2: parseFloat((0.45 + o2Sin * 0.20 + rand(0.04)).toFixed(3)),
+      o2Bank2Sensor1: parseFloat((0.45 + o2Sin * 0.30 + rand(0.05)).toFixed(3)),
+      ambientTemp:    Math.round(26 + rand(1)),
+      mapPresure:     Math.round(98 + rand(3)),
+      boostPressure:  Math.round(105 + rand(8)),
+      oilTemp:        Math.round(85 + rand(2)),
+      catalystTemp:   parseFloat((420 + rand(15)).toFixed(1)),
+      egrCommanded:   Math.round(12 + rand(3)),
+      egrError:       parseFloat((rand(1)).toFixed(1)),
+      throttleActual: Math.round(15 + rand(4)),
+      accelPedalD:    Math.round(8 + rand(3)),
+      fuelType:       'Diesel',
+    };
   }
 
   _isPIDSupported(pidHex) {
     if (this.supportedPIDs.size === 0) return true;
     return this.supportedPIDs.has(pidHex.toUpperCase());
+  }
+
+  // ── Toyota Mode 22 (JOBD) parser ──────────────────────────────────────────
+  // Mode 22 request:  22 XX YY        (DID = XXYY)
+  // Mode 22 response: 62 XX YY DD ... (62 = 22+0x40, DID echo, then data)
+  // Some Toyota ECUs prefix multi-frame responses with ISO-TP framing
+  // (e.g. "10 09 62 11 0C ..."). We strip that here.
+  _parseToyotaResponse(did, raw) {
+    if (!raw) return null;
+    const u = raw.replace(/[\s\r\n>]/g, '').toUpperCase();
+    if (!u || u.includes('NODATA') || u.includes('UNABLE') ||
+        u.includes('ERROR') || u.startsWith('7F')) return null;
+
+    // Find "62" followed by the DID echo (last 4 hex chars of the request)
+    const didEcho = did.slice(2).toUpperCase();        // "22110C" → "110C"
+    const marker  = '62' + didEcho;                     // "62110C"
+    const idx = u.indexOf(marker);
+    if (idx < 0) return null;
+    const dataHex = u.substring(idx + marker.length);   // bytes after the DID
+    const bytes = dataHex.match(/.{1,2}/g);
+    if (!bytes || bytes.length === 0) return null;
+    const A = parseInt(bytes[0], 16);
+    const B = bytes.length > 1 ? parseInt(bytes[1], 16) : 0;
+    if (isNaN(A)) return null;
+
+    // Decode using the same formulas as Mode 01 PIDs (Toyota mostly mirrors
+    // standard scaling for these particular DIDs).
+    switch (did) {
+      case TOYOTA_DIDS.RPM:             return Math.round((A * 256 + B) / 4);
+      case TOYOTA_DIDS.SPEED:           return A;
+      case TOYOTA_DIDS.COOLANT_TEMP:
+      case TOYOTA_DIDS.INTAKE_TEMP:     return A - 40;
+      case TOYOTA_DIDS.THROTTLE:
+      case TOYOTA_DIDS.ENGINE_LOAD:     return Math.round((A / 255) * 100);
+      case TOYOTA_DIDS.MAF:             return parseFloat(((A * 256 + B) / 100).toFixed(1));
+      case TOYOTA_DIDS.MAP_PRESSURE:    return A;
+      case TOYOTA_DIDS.BOOST_PRESSURE:  return parseFloat(((A * 256 + B) * 0.03125).toFixed(1));
+      case TOYOTA_DIDS.FUEL_RAIL_PRESS: return (A * 256 + B) * 10;
+      case TOYOTA_DIDS.TIMING_ADVANCE:  return Math.round(A / 2 - 64);
+      case TOYOTA_DIDS.CONTROL_VOLTAGE: return parseFloat(((A * 256 + B) / 1000).toFixed(1));
+      default: return A;
+    }
+  }
+
+  // ── Configure ELM for Toyota CAN access ──────────────────────────────────
+  async _configureToyotaCan() {
+    await this._sendRawCommand('ATSP6\r');                         // CAN 11/500
+    await this._delay(200);
+    await this._sendRawCommand(`ATSH${TOYOTA_ENGINE_HEADER}\r`);   // engine ECU header
+    await this._delay(200);
+    await this._sendRawCommand(`ATFCSH${TOYOTA_ENGINE_HEADER}\r`); // flow-control header
+    await this._delay(200);
+    await this._sendRawCommand('ATCAF1\r');                        // auto-format CAN frames
+    await this._delay(200);
+    await this._sendRawCommand('ATFCSD300000\r');                  // flow-control data
+    await this._delay(200);
+    await this._sendRawCommand('ATFCSM1\r');                       // flow-control mode
+    await this._delay(200);
+  }
+
+  // ── Probe: does this ECU answer Toyota Mode 22 DIDs? ─────────────────────
+  // Iterates the well-known 1KD/2KD DID set, recording which ones return
+  // valid data. If at least one DID responds, we lock into Toyota mode.
+  async _tryToyotaCanMode() {
+    console.log('OBD: Probing Toyota Mode 22 (JOBD) on engine ECU 7E0...');
+    await this._configureToyotaCan();
+    this.toyotaSupportedDIDs = new Set();
+
+    for (const [name, did] of Object.entries(TOYOTA_DIDS)) {
+      const cmd = did.replace(/(.{2})(.{2})(.{2})/, '$1 $2 $3') + '\r';
+      const raw = await this.sendCommand(cmd);
+      const value = this._parseToyotaResponse(did, raw);
+      const cleanRaw = (raw || '').replace(/[\r\n]+/g, ' ').trim();
+      if (value !== null) {
+        this.toyotaSupportedDIDs.add(did);
+        console.log(`OBD Toyota[${name}] DID ${did}: raw="${cleanRaw}" → ${value} ✓`);
+      } else {
+        console.log(`OBD Toyota[${name}] DID ${did}: raw="${cleanRaw}" → null`);
+      }
+    }
+
+    const ok = this.toyotaSupportedDIDs.size > 0;
+    if (ok) {
+      this.useToyotaMode = true;
+      console.log(`OBD: Toyota Mode 22 ENABLED — ${this.toyotaSupportedDIDs.size} DID(s) responding`);
+    } else {
+      console.log('OBD: No Toyota DIDs responded — vehicle does not expose Mode 22 either');
+    }
+    return ok;
   }
 
   onConnectionChange(callback) {
@@ -485,6 +713,7 @@ class OBDService {
   // ── Connect ────────────────────────────────────────────────────────────────
   async connect(deviceId) {
     this._cancelReconnect(); // clear any pending reconnect before fresh connect
+    this.lastConnectError = null;
     try {
       this.device = await manager.connectToDevice(deviceId, { requestMTU: 512, timeout: 10000 });
       await this.device.discoverAllServicesAndCharacteristics();
@@ -493,25 +722,49 @@ class OBDService {
       let writeChar = null;
       let notifyChar = null;
 
+      // Prefer a single service that exposes BOTH write and notify characteristics
+      // (ELM327 BLE adapters keep them paired in FFF0). Fall back to first writable
+      // service if no single service has both.
       for (const service of services) {
         const chars = await service.characteristics();
-        for (const char of chars) {
-          if (char.isWritableWithResponse || char.isWritableWithoutResponse) {
-            writeChar = char;
-            this.serviceUUID = service.uuid;
-            this.writeCharUUID = char.uuid;
-          }
-          if (char.isNotifiable || char.isIndicatable) {
-            notifyChar = char;
-            this.notifyCharUUID = char.uuid;
-            if (!this.serviceUUID) this.serviceUUID = service.uuid;
-          }
+        const w = chars.find(c => c.isWritableWithResponse || c.isWritableWithoutResponse);
+        const n = chars.find(c => c.isNotifiable || c.isIndicatable);
+        if (w && n) {
+          writeChar = w;
+          notifyChar = n;
+          this.serviceUUID = service.uuid;
+          this.writeCharUUID = w.uuid;
+          this.notifyCharUUID = n.uuid;
+          break;
         }
-        if (writeChar && notifyChar) break;
+        if (w && !writeChar) {
+          writeChar = w;
+          this.serviceUUID = service.uuid;
+          this.writeCharUUID = w.uuid;
+        }
       }
 
-      if (!writeChar) return false;
+      if (!writeChar) {
+        this.lastConnectError =
+          'This Bluetooth device does not expose an OBD-II compatible interface. ' +
+          'Some KONNWEI/ELM327 clones use Bluetooth Classic (SPP) which is not supported here — ' +
+          'try a BLE-capable adapter (e.g. Vgate iCar Pro BLE, Veepeak BLE+).';
+        console.error('OBD: No writable characteristic found on device');
+        return false;
+      }
       if (!notifyChar) this.notifyCharUUID = this.writeCharUUID;
+
+      // Pick the write method the characteristic actually supports. KONNWEI and
+      // most ELM327 BLE clones expose writeWithoutResponse only — calling the
+      // with-response variant on those throws and every AT command silently fails.
+      this.writeWithResponse = !!writeChar.isWritableWithResponse;
+      console.log(
+        'OBD: write mode =',
+        this.writeWithResponse ? 'withResponse' : 'withoutResponse',
+        '| service =', this.serviceUUID,
+        '| writeChar =', this.writeCharUUID,
+        '| notifyChar =', this.notifyCharUUID
+      );
 
       if (notifyChar && (notifyChar.isNotifiable || notifyChar.isIndicatable)) {
         this.device.monitorCharacteristicForService(
@@ -557,32 +810,150 @@ class OBDService {
       // ECU is responding, with retries to handle SEARCHING... timing.
       this.supportedPIDs = new Set();
 
-      let r0100 = await this.sendCommand('0100\r');
-      console.log('OBD: 0100 response:', r0100);
+      // Sanitize raw responses for logging (\r causes the terminal to overwrite lines)
+      const cleanLog = r => (r || '').replace(/[\r\n]+/g, ' ').trim();
 
-      // Wait out SEARCHING... or 7F negative response (ECU not ready yet)
+      let r0100 = await this.sendCommand('0100\r');
+      console.log('OBD: 0100 response:', cleanLog(r0100));
+
+      // Wait out SEARCHING... or 7F negative response (ECU not ready yet).
+      // UNABLE TO CONNECT means the adapter cannot establish a protocol with
+      // the vehicle bus — no point retrying, the ECU is unreachable.
+      const MAX_HANDSHAKE_RETRIES = 4;
       let retries = 0;
-      while (retries < 8) {
+      while (retries < MAX_HANDSHAKE_RETRIES) {
         const up = (r0100 || '').toUpperCase();
+        if (up.includes('UNABLE')) {
+          this.lastConnectError =
+            'Vehicle ECU is not responding. Make sure the car ignition is ON ' +
+            '(key in ACC or RUN), the OBD-II adapter is firmly seated, and try again.';
+          console.error('OBD: UNABLE TO CONNECT — vehicle bus unreachable');
+          break;
+        }
         if (!up || up.includes('SEARCHING') || up.includes('TRYINGPROT') || up.startsWith('7F')) {
-          console.log(`OBD: ECU not ready (${up.substring(0, 12) || 'empty'}), waiting... (${retries + 1}/8)`);
-          await this._delay(3000);
-          // Re-send protocol init before retrying — helps with slow ECUs
-          if (retries === 3) {
+          console.log(`OBD: ECU not ready (${up.substring(0, 16) || 'empty'}), waiting... (${retries + 1}/${MAX_HANDSHAKE_RETRIES})`);
+          await this._delay(2000);
+          // Re-send protocol init halfway through — helps with slow ECUs
+          if (retries === Math.floor(MAX_HANDSHAKE_RETRIES / 2)) {
             await this._sendRawCommand(AT_COMMANDS.AUTO_PROTOCOL);
             await this._delay(2000);
           }
           r0100 = await this.sendCommand('0100\r');
-          console.log(`OBD: 0100 retry (${retries + 1}):`, r0100);
+          console.log(`OBD: 0100 retry (${retries + 1}):`, cleanLog(r0100));
           retries++;
         } else {
           break;
         }
       }
 
+      // Normalize whitespace before matching — the ELM returns "NO DATA"
+      // with a space which would slip past a literal "NODATA" check.
+      const norm = (resp) => (resp || '').replace(/\s+/g, '').toUpperCase();
+      const isBadResponse = (resp) => {
+        const u = norm(resp);
+        return !u || u.includes('NODATA') || u.includes('UNABLE') ||
+               u.startsWith('7F') || u.includes('SEARCHING') ||
+               u.includes('ERROR') || u.includes('BUSINIT');
+      };
+      // 7F = ECU is alive on this protocol but rejected the specific service.
+      // Better than NO DATA (silent bus) — Mode 03/04 may still work.
+      const isEcuAcknowledging = (resp) => norm(resp).startsWith('7F');
+
+      // Auto-protocol failed — force specific protocols one at a time. This
+      // rescues older diesels (Toyota 1KD-FTV / Hiace 200-series, Land Cruiser
+      // 70/200, Hilux KUN26) where K-line slow-init exceeds the auto-search
+      // budget, and CAN-only platforms where ATSP0 occasionally picks K-line
+      // by mistake.
+      let acknowledgingProtocol = null; // protocol that got 7F (ECU alive)
+
+      if (isBadResponse(r0100)) {
+        const fallbackProtocols = [
+          { code: '6', name: 'ISO 15765-4 CAN 11/500' },
+          { code: '7', name: 'ISO 15765-4 CAN 29/500' },
+          { code: '8', name: 'ISO 15765-4 CAN 11/250' },
+          { code: '9', name: 'ISO 15765-4 CAN 29/250' },
+          { code: '5', name: 'ISO 14230-4 KWP fast init (K-line)' },
+          { code: '4', name: 'ISO 14230-4 KWP slow init (K-line)' },
+          { code: '3', name: 'ISO 9141-2 (K-line)' },
+        ];
+        for (const proto of fallbackProtocols) {
+          console.log(`OBD: Forcing protocol ${proto.code} (${proto.name})`);
+          await this._sendRawCommand(`ATSP${proto.code}\r`);
+          await this._delay(500);
+          let attempt = await this.sendCommand('0100\r');
+          console.log(`OBD: Protocol ${proto.code} 0100 response:`, cleanLog(attempt));
+          if (norm(attempt).includes('SEARCHING')) {
+            await this._delay(2000);
+            attempt = await this.sendCommand('0100\r');
+            console.log(`OBD: Protocol ${proto.code} 0100 retry:`, cleanLog(attempt));
+          }
+          if (!isBadResponse(attempt)) {
+            r0100 = attempt;
+            console.log(`OBD: Protocol ${proto.code} succeeded`);
+            acknowledgingProtocol = null;
+            break;
+          }
+          // ECU acknowledged on this protocol but rejected Mode 01 — remember it
+          if (isEcuAcknowledging(attempt) && !acknowledgingProtocol) {
+            acknowledgingProtocol = proto;
+          }
+        }
+
+        // No protocol gave us live PIDs, but one had an ECU that at least
+        // acknowledged us. Before giving up on live data, try Toyota's
+        // proprietary Mode 22 (JOBD) on the engine ECU header — this is what
+        // Techstream / Car Scanner Pro use to read live data on JDM Hiace,
+        // Hilux, Land Cruiser etc. that reject standard Mode 01.
+        if (isBadResponse(r0100) && acknowledgingProtocol) {
+          const toyotaWorked = await this._tryToyotaCanMode();
+          if (toyotaWorked) {
+            console.log('OBD: Connected via Toyota Mode 22 — live data available');
+            this.supportedPIDs = new Set();
+            this.lastConnectError = null;
+            this.lastDeviceId = deviceId;
+            this._notifyConnectionChange(true);
+            this._startHeartbeat();
+            return true;
+          }
+
+          console.log(
+            `OBD: No live-data PID support on this vehicle — locking to ` +
+            `protocol ${acknowledgingProtocol.code} (${acknowledgingProtocol.name}) ` +
+            `since ECU acknowledged there. DTC reading may still work.`
+          );
+          await this._sendRawCommand(`ATSP${acknowledgingProtocol.code}\r`);
+          await this._delay(500);
+          this.lastConnectError =
+            'Connected, but this vehicle does not support standard OBD-II live data ' +
+            '(Mode 01) or Toyota Mode 22. The ECU returned "service not supported" — ' +
+            'common on JDM-spec Toyota Hiace / Land Cruiser / Hilux 1KD diesels which ' +
+            'use Toyota proprietary diagnostics. Fault code scanning (Mode 03) may still work.';
+          // Treat as soft success: connect proceeds, dashboard will mostly show zeros,
+          // but DTC scanner remains usable.
+          this.supportedPIDs = new Set();
+          this.lastDeviceId = deviceId;
+          this._notifyConnectionChange(true);
+          this._startHeartbeat();
+          return true;
+        }
+      }
+
       const up0100 = (r0100 || '').toUpperCase();
-      if (!up0100 || up0100.includes('NODATA') || up0100.includes('UNABLE') || up0100.startsWith('7F')) {
-        console.error('OBD: ECU not responding after retries — final response:', r0100);
+      if (isBadResponse(r0100)) {
+        if (!this.lastConnectError) {
+          if (up0100.includes('NODATA') || up0100.includes('SEARCHING')) {
+            this.lastConnectError =
+              'Vehicle ECU did not respond on any protocol. Check that the engine ignition is ON ' +
+              '(start the engine if possible) and the OBD-II adapter is fully plugged in.';
+          } else if (up0100.startsWith('7F')) {
+            this.lastConnectError =
+              'Vehicle rejected the diagnostic request (negative response). ' +
+              'Try unplugging the adapter, turning ignition off, then on again.';
+          } else {
+            this.lastConnectError = 'No response from vehicle ECU after handshake retries.';
+          }
+        }
+        console.error('OBD: ECU not responding after retries — final response:', cleanLog(r0100));
         this.disconnect();
         return false;
       }
@@ -614,6 +985,9 @@ class OBDService {
       return true;
     } catch (error) {
       console.error('OBD Connect Error:', error.message);
+      if (!this.lastConnectError) {
+        this.lastConnectError = `Bluetooth connection error: ${error.message}`;
+      }
       this.disconnect();
       return false;
     }
@@ -626,9 +1000,15 @@ class OBDService {
     try {
       this.responseBuffer = '';
       const encoded = toBase64(command);
-      await this.device.writeCharacteristicWithResponseForService(
-        this.serviceUUID, this.writeCharUUID, encoded
-      );
+      if (this.writeWithResponse) {
+        await this.device.writeCharacteristicWithResponseForService(
+          this.serviceUUID, this.writeCharUUID, encoded
+        );
+      } else {
+        await this.device.writeCharacteristicWithoutResponseForService(
+          this.serviceUUID, this.writeCharUUID, encoded
+        );
+      }
       const response = await Promise.race([
         new Promise(resolve => { this.responseResolve = resolve; }),
         this._delay(3000).then(() => this._readCharacteristic()),
@@ -671,20 +1051,84 @@ class OBDService {
     this.isProcessing = false;
   }
 
+  // ── Toyota Mode 22 sensor query ───────────────────────────────────────────
+  async _getToyotaSensorData() {
+    const data = {
+      rpm: 0, speed: 0, coolantTemp: 0, throttle: 0, fuelLevel: 0,
+      engineLoad: 0, voltage: 0, intakeTemp: 0, maf: 0, timing: 0,
+      fuelPressure: 0, fuelTrim: 0,
+    };
+    const queryDID = async (did) => {
+      if (!this.toyotaSupportedDIDs.has(did)) return null;
+      const cmd = did.replace(/(.{2})(.{2})(.{2})/, '$1 $2 $3') + '\r';
+      const raw = await this.sendCommand(cmd);
+      return this._parseToyotaResponse(did, raw);
+    };
+
+    const [rpm, speed, coolant, throttle, load, intake, maf, timing, rail, voltage] = await Promise.all([
+      queryDID(TOYOTA_DIDS.RPM),
+      queryDID(TOYOTA_DIDS.SPEED),
+      queryDID(TOYOTA_DIDS.COOLANT_TEMP),
+      queryDID(TOYOTA_DIDS.THROTTLE),
+      queryDID(TOYOTA_DIDS.ENGINE_LOAD),
+      queryDID(TOYOTA_DIDS.INTAKE_TEMP),
+      queryDID(TOYOTA_DIDS.MAF),
+      queryDID(TOYOTA_DIDS.TIMING_ADVANCE),
+      queryDID(TOYOTA_DIDS.FUEL_RAIL_PRESS),
+      queryDID(TOYOTA_DIDS.CONTROL_VOLTAGE),
+    ]);
+    if (rpm     !== null) data.rpm = rpm;
+    if (speed   !== null) data.speed = speed;
+    if (coolant !== null) data.coolantTemp = coolant;
+    if (throttle!== null) data.throttle = throttle;
+    if (load    !== null) data.engineLoad = load;
+    if (intake  !== null) data.intakeTemp = intake;
+    if (maf     !== null) data.maf = maf;
+    if (timing  !== null) data.timing = timing;
+    if (rail    !== null) data.fuelPressure = Math.round(rail / 100); // kPa→useful range
+
+    // Voltage: prefer ECU value, fall back to ELM hardware voltmeter
+    if (voltage !== null && voltage > 8) {
+      data.voltage = voltage;
+    } else {
+      const atrv = await this.sendCommand('ATRV\r');
+      const m = (atrv || '').match(/(\d+\.\d+)/);
+      if (m) data.voltage = parseFloat(m[1]);
+    }
+    return data;
+  }
+
   // ── getSensorData — core dashboard sensors (fast, every 2s) ───────────────
   // Only queries PIDs confirmed supported during PID discovery in connect().
   async getSensorData() {
+    if (this.demoMode) return this._generateDemoSensorData();
     if (!this.isConnected) return null;
+    if (this.useToyotaMode) {
+      try { return await this._getToyotaSensorData(); }
+      catch (e) { console.warn('OBD Toyota getSensorData Error:', e.message); return null; }
+    }
     try {
+      // First-call diagnostics — log once so terminal shows what we're working with
+      if (!this._diagLogged) {
+        console.log('OBD: --- Sensor poll diagnostics ---');
+        console.log('OBD: supportedPIDs =', [...this.supportedPIDs].join(',') || '(empty — assuming all)');
+        console.log('OBD: writeMode =', this.writeWithResponse ? 'withResponse' : 'withoutResponse');
+        this._diagLogged = true;
+      }
+
+      const clean = r => (r || '').replace(/[\r\n]+/g, ' ').trim();
       const data = {};
 
-      // Helper: query only if PID is known supported
+      // Helper: query only if PID is known supported. Logs raw + parsed for visibility.
       const query = async (pidKey, pidName, pidHex) => {
-        if (!this._isPIDSupported(pidHex)) return 0;
+        if (!this._isPIDSupported(pidHex)) {
+          console.log(`OBD [${pidName}] PID ${pidHex}: skipped (not in supported set)`);
+          return 0;
+        }
         const raw = await this.sendCommand(COMMANDS[pidKey]);
         const parsed = parseResponse(pidName, raw);
-        if (parsed === null) console.log(`OBD RAW [${pidName}]:`, raw);
-        return parsed || 0;
+        console.log(`OBD [${pidName}] PID ${pidHex}: raw="${clean(raw)}" parsed=${parsed}`);
+        return parsed === null ? 0 : parsed;
       };
 
       data.rpm         = await query('RPM',           'RPM',           '0C');
@@ -694,6 +1138,20 @@ class OBDService {
       data.fuelLevel   = await query('FUEL_LEVEL',    'FUEL_LEVEL',    '2F');
       data.engineLoad  = await query('ENGINE_LOAD',   'ENGINE_LOAD',   '04');
       data.voltage     = await query('CONTROL_VOLTAGE','CONTROL_VOLTAGE','42');
+
+      // Voltage fallback: every ELM327 has a hardware voltmeter on the OBD-II
+      // socket accessible via ATRV — works even when ECU PID 0142 doesn't.
+      if (!data.voltage || data.voltage === 0) {
+        const atrv = await this.sendCommand('ATRV\r');
+        const m = (atrv || '').match(/(\d+\.\d+)\s*V?/i);
+        if (m) {
+          data.voltage = parseFloat(m[1]);
+          console.log(`OBD [VOLTAGE_ATRV]: raw="${clean(atrv)}" parsed=${data.voltage}V (adapter voltmeter)`);
+        } else {
+          console.log(`OBD [VOLTAGE_ATRV]: raw="${clean(atrv)}" parsed=null`);
+        }
+      }
+
       data.intakeTemp  = await query('INTAKE_TEMP',   'INTAKE_TEMP',   '0F');
       data.maf         = await query('MAF',           'MAF',           '10');
       data.timing      = await query('TIMING_ADVANCE','TIMING_ADVANCE','0E');
@@ -709,6 +1167,7 @@ class OBDService {
 
   // ── NEW: getExtendedSensorData — full sensor sweep (slower, on demand) ─────
   async getExtendedSensorData() {
+    if (this.demoMode) return this._generateDemoExtendedData();
     if (!this.isConnected) return null;
     try {
       const data = {};
@@ -812,6 +1271,10 @@ class OBDService {
 
   // ── DTC methods (unchanged) ───────────────────────────────────────────────
   async getFaultCodes() {
+    if (this.demoMode) {
+      // A small, plausible mix of DTCs to show off the UI
+      return ['P0171', 'P0420', 'P0301'];
+    }
     if (!this.isConnected) return [];
     try {
       const response        = await this.sendCommand(COMMANDS.READ_DTC);
@@ -826,6 +1289,7 @@ class OBDService {
   }
 
   async clearFaultCodes() {
+    if (this.demoMode) return true;
     if (!this.isConnected) return false;
     try {
       await this.sendCommand(COMMANDS.CLEAR_DTC);
