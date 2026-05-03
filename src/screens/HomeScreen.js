@@ -86,10 +86,10 @@ export default function HomeScreen({ navigation }) {
     },
     {
       id: '4',
-      icon: 'time-outline',
-      title: 'History',
-      subtitle: 'Past Scans',
-      screen: 'History',
+      icon: 'clipboard-outline',
+      title: 'Inspection',
+      subtitle: 'Full Vehicle Report',
+      screen: 'Inspection',
       gradient: ['#8B0000', '#A00000'],
     },
   ];
@@ -104,8 +104,8 @@ export default function HomeScreen({ navigation }) {
     },
     {
       id: '6',
-      icon: 'construct-outline',
-      title: 'Maintenance',
+      icon: 'time-outline',
+      title: 'History',
       screen: 'History',
       color: '#8B0000',
     },

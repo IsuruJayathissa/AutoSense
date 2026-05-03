@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList,
   TouchableOpacity, StatusBar, Alert,
@@ -7,15 +7,16 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, db } from '../config/firebase';
 import ReportService from '../services/ReportService';
+import InspectionService from '../services/InspectionService';
 
 const LABEL_COLOR  = { Normal: '#10B981', Warning: '#F59E0B', Critical: '#EF4444' };
 const LABEL_ICON   = { Normal: 'checkmark-circle', Warning: 'warning', Critical: 'alert-circle' };
 const DTC_HIST_KEY = '@svd_dtc_history';
-const TABS = ['Sessions', 'DTC History'];
+const TABS = ['Sessions', 'Inspections', 'DTC History'];
 
 function formatDate(val) {
   if (!val) return '—';
@@ -35,39 +36,89 @@ function StatChip({ label, value, color }) {
 export default function HistoryScreen({ navigation }) {
   const [activeTab,    setActiveTab]    = useState(0);
   const [sessions,     setSessions]     = useState([]);
+  const [inspections,  setInspections]  = useState([]);
   const [dtcHistory,   setDtcHistory]   = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [refreshing,   setRefreshing]   = useState(false);
   const [exporting,    setExporting]    = useState(false);
+  const [sharingId,    setSharingId]    = useState(null);
 
   useEffect(() => { loadAll(); }, []);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
-    await Promise.all([loadSessions(), loadDtcHistory()]);
+    await Promise.all([loadSessions(), loadInspections(), loadDtcHistory()]);
     setLoading(false);
   }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([loadSessions(), loadDtcHistory()]);
+    await Promise.all([loadSessions(), loadInspections(), loadDtcHistory()]);
     setRefreshing(false);
   }, []);
 
   // ── Firestore: training sessions ──────────────────────────────────────────
+  // We avoid orderBy in the query to skip the composite-index requirement
+  // (where + orderBy on different fields would otherwise need an index).
+  // Sort client-side instead — fine for the small per-user dataset sizes here.
   const loadSessions = async () => {
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) return;
       const q = query(
         collection(db, 'trainingData'),
-        where('userId', '==', userId),
-        orderBy('createdAt', 'desc')
+        where('userId', '==', userId)
       );
       const snap = await getDocs(q);
-      setSessions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      docs.sort((a, b) => {
+        const ta = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+        const tb = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+        return tb - ta;
+      });
+      setSessions(docs);
     } catch (e) {
       console.warn('HistoryScreen: loadSessions error', e.message);
+    }
+  };
+
+  // ── Firestore: vehicle inspections ───────────────────────────────────────
+  const loadInspections = async () => {
+    try {
+      const docs = await InspectionService.listInspections();
+      setInspections(docs);
+    } catch (e) {
+      console.warn('HistoryScreen: loadInspections error', e.message);
+    }
+  };
+
+  // Re-generate and share a previously saved inspection's report.
+  const handleShareInspection = async (item) => {
+    setSharingId(item.id);
+    try {
+      const vehicle = {
+        vehicleId:     item.vehicleId,
+        vehicleNumber: item.vehicleNumber,
+        brand:         item.brand,
+        model:         item.model,
+        year:          item.year,
+        engineType:    item.engineType,
+      };
+      await ReportService.exportInspectionPDF({
+        vehicle,
+        inspectorName: item.inspectorName,
+        odometer:      item.odometer,
+        results:       item.results,
+        ecuSnapshot:   item.ecuSnapshot,
+        healthScore:   item.healthScore,
+        faultCodes:    item.faultCodes || [],
+        notes:         item.notes,
+        timestamp:     item.createdAt?.toMillis ? item.createdAt.toMillis() : Date.now(),
+      });
+    } catch (e) {
+      Alert.alert('Share Failed', e.message);
+    } finally {
+      setSharingId(null);
     }
   };
 
@@ -141,6 +192,91 @@ export default function HistoryScreen({ navigation }) {
     );
   };
 
+  // ── Render: inspection card ───────────────────────────────────────────────
+  const renderInspection = ({ item }) => {
+    const s = item.summary || { green: 0, yellow: 0, red: 0, na: 0, total: 0 };
+    // Worst-finding determines the accent stripe colour
+    const accent = s.red > 0 ? '#EF4444' : s.yellow > 0 ? '#F59E0B' : '#10B981';
+    const accentLabel = s.red > 0 ? 'Action Needed' : s.yellow > 0 ? 'Monitor' : 'Good';
+    const isSharing = sharingId === item.id;
+
+    return (
+      <View style={styles.card}>
+        <View style={[styles.cardAccent, { backgroundColor: accent }]} />
+        <View style={styles.cardHeader}>
+          <View style={styles.cardHeaderLeft}>
+            <Ionicons name="clipboard-outline" size={18} color={accent} />
+            <Text style={[styles.cardLabel, { color: accent }]}>{accentLabel}</Text>
+          </View>
+          <Text style={styles.cardDate}>{formatDate(item.createdAt)}</Text>
+        </View>
+
+        {/* Vehicle + inspector line */}
+        <View style={styles.inspMetaRow}>
+          <Ionicons name="car-sport-outline" size={13} color="#6B7280" />
+          <Text style={styles.inspMetaText}>
+            {item.brand || '—'} {item.model || ''} {item.vehicleNumber ? `(${item.vehicleNumber})` : ''}
+          </Text>
+        </View>
+        {!!item.inspectorName && (
+          <View style={styles.inspMetaRow}>
+            <Ionicons name="person-outline" size={13} color="#6B7280" />
+            <Text style={styles.inspMetaText}>By {item.inspectorName}</Text>
+            {item.odometer ? (
+              <>
+                <Text style={styles.dot}>·</Text>
+                <Ionicons name="speedometer-outline" size={13} color="#6B7280" />
+                <Text style={styles.inspMetaText}>{item.odometer} km</Text>
+              </>
+            ) : null}
+          </View>
+        )}
+
+        {/* Traffic-light counts */}
+        <View style={styles.chipRow}>
+          <StatChip label="Good"    value={String(s.green)}  color="#10B981" />
+          <StatChip label="Monitor" value={String(s.yellow)} color="#F59E0B" />
+          <StatChip label="Action"  value={String(s.red)}    color="#EF4444" />
+          <StatChip label="N/A"     value={String(s.na)} />
+          {item.healthScore != null && (
+            <StatChip label="Health" value={`${item.healthScore}/100`} color={accent} />
+          )}
+        </View>
+
+        <View style={styles.cardFooter}>
+          <Ionicons name="layers-outline" size={13} color="#9CA3AF" />
+          <Text style={styles.cardFooterText}>{s.total} items inspected</Text>
+          {(item.faultCodes || []).length > 0 && (
+            <>
+              <Text style={styles.dot}>·</Text>
+              <Ionicons name="warning-outline" size={13} color="#EF4444" />
+              <Text style={[styles.cardFooterText, { color: '#EF4444' }]}>
+                {item.faultCodes.length} DTC
+              </Text>
+            </>
+          )}
+        </View>
+
+        {/* Re-share button */}
+        <TouchableOpacity
+          style={styles.shareInspectionBtn}
+          onPress={() => handleShareInspection(item)}
+          disabled={isSharing}
+          activeOpacity={0.8}
+        >
+          {isSharing ? (
+            <ActivityIndicator size="small" color="#8B0000" />
+          ) : (
+            <>
+              <Ionicons name="share-outline" size={16} color="#8B0000" />
+              <Text style={styles.shareInspectionText}>Re-share Report</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   // ── Render: DTC history card ──────────────────────────────────────────────
   const renderDtc = ({ item }) => (
     <View style={styles.card}>
@@ -167,17 +303,33 @@ export default function HistoryScreen({ navigation }) {
   );
 
   // ── Empty state ───────────────────────────────────────────────────────────
-  const Empty = ({ tab }) => (
-    <View style={styles.emptyBox}>
-      <Ionicons name={tab === 0 ? 'layers-outline' : 'search-outline'} size={56} color="#D1D5DB" />
-      <Text style={styles.emptyTitle}>{tab === 0 ? 'No Sessions Yet' : 'No DTC Scans Yet'}</Text>
-      <Text style={styles.emptyText}>
-        {tab === 0
-          ? 'Record OBD sessions in Data Collection to see them here.'
-          : 'Scan for fault codes in the Fault Codes screen to build history.'}
-      </Text>
-    </View>
-  );
+  const Empty = ({ tab }) => {
+    const meta = [
+      { icon: 'layers-outline',    title: 'No Sessions Yet',    text: 'Record OBD sessions in Data Collection to see them here.' },
+      { icon: 'clipboard-outline', title: 'No Inspections Yet', text: 'Complete a Vehicle Inspection from Home to see it here.' },
+      { icon: 'search-outline',    title: 'No DTC Scans Yet',   text: 'Scan for fault codes in the Fault Codes screen to build history.' },
+    ][tab];
+    return (
+      <View style={styles.emptyBox}>
+        <Ionicons name={meta.icon} size={56} color="#D1D5DB" />
+        <Text style={styles.emptyTitle}>{meta.title}</Text>
+        <Text style={styles.emptyText}>{meta.text}</Text>
+      </View>
+    );
+  };
+
+  // Pick data + renderer based on the active tab
+  const tabData = activeTab === 0 ? sessions : activeTab === 1 ? inspections : dtcHistory;
+  const tabRenderer = activeTab === 0 ? renderSession : activeTab === 1 ? renderInspection : renderDtc;
+
+  // Aggregate inspection traffic-light counts for the banner
+  const inspTotals = inspections.reduce((acc, ins) => {
+    const s = ins.summary || {};
+    acc.green  += s.green  || 0;
+    acc.yellow += s.yellow || 0;
+    acc.red    += s.red    || 0;
+    return acc;
+  }, { green: 0, yellow: 0, red: 0 });
 
   return (
     <View style={styles.container}>
@@ -215,34 +367,70 @@ export default function HistoryScreen({ navigation }) {
           ))}
         </View>
 
-        {/* Summary banner */}
+        {/* Summary banner — content depends on active tab */}
         {!loading && (
           <LinearGradient colors={['#8B0000', '#A00000']} style={styles.banner}>
-            <View style={styles.bannerItem}>
-              <Text style={styles.bannerNum}>{sessions.length}</Text>
-              <Text style={styles.bannerLabel}>Sessions</Text>
-            </View>
-            <View style={styles.bannerDivider} />
-            <View style={styles.bannerItem}>
-              <Text style={styles.bannerNum}>
-                {sessions.filter(s => s.label === 'Normal').length}
-              </Text>
-              <Text style={styles.bannerLabel}>Normal</Text>
-            </View>
-            <View style={styles.bannerDivider} />
-            <View style={styles.bannerItem}>
-              <Text style={styles.bannerNum}>
-                {sessions.filter(s => s.label === 'Warning').length}
-              </Text>
-              <Text style={styles.bannerLabel}>Warning</Text>
-            </View>
-            <View style={styles.bannerDivider} />
-            <View style={styles.bannerItem}>
-              <Text style={styles.bannerNum}>
-                {sessions.filter(s => s.label === 'Critical').length}
-              </Text>
-              <Text style={styles.bannerLabel}>Critical</Text>
-            </View>
+            {activeTab === 0 && (
+              <>
+                <View style={styles.bannerItem}>
+                  <Text style={styles.bannerNum}>{sessions.length}</Text>
+                  <Text style={styles.bannerLabel}>Sessions</Text>
+                </View>
+                <View style={styles.bannerDivider} />
+                <View style={styles.bannerItem}>
+                  <Text style={styles.bannerNum}>{sessions.filter(s => s.label === 'Normal').length}</Text>
+                  <Text style={styles.bannerLabel}>Normal</Text>
+                </View>
+                <View style={styles.bannerDivider} />
+                <View style={styles.bannerItem}>
+                  <Text style={styles.bannerNum}>{sessions.filter(s => s.label === 'Warning').length}</Text>
+                  <Text style={styles.bannerLabel}>Warning</Text>
+                </View>
+                <View style={styles.bannerDivider} />
+                <View style={styles.bannerItem}>
+                  <Text style={styles.bannerNum}>{sessions.filter(s => s.label === 'Critical').length}</Text>
+                  <Text style={styles.bannerLabel}>Critical</Text>
+                </View>
+              </>
+            )}
+            {activeTab === 1 && (
+              <>
+                <View style={styles.bannerItem}>
+                  <Text style={styles.bannerNum}>{inspections.length}</Text>
+                  <Text style={styles.bannerLabel}>Inspections</Text>
+                </View>
+                <View style={styles.bannerDivider} />
+                <View style={styles.bannerItem}>
+                  <Text style={styles.bannerNum}>{inspTotals.green}</Text>
+                  <Text style={styles.bannerLabel}>Good</Text>
+                </View>
+                <View style={styles.bannerDivider} />
+                <View style={styles.bannerItem}>
+                  <Text style={styles.bannerNum}>{inspTotals.yellow}</Text>
+                  <Text style={styles.bannerLabel}>Monitor</Text>
+                </View>
+                <View style={styles.bannerDivider} />
+                <View style={styles.bannerItem}>
+                  <Text style={styles.bannerNum}>{inspTotals.red}</Text>
+                  <Text style={styles.bannerLabel}>Action</Text>
+                </View>
+              </>
+            )}
+            {activeTab === 2 && (
+              <>
+                <View style={styles.bannerItem}>
+                  <Text style={styles.bannerNum}>{dtcHistory.length}</Text>
+                  <Text style={styles.bannerLabel}>Scans</Text>
+                </View>
+                <View style={styles.bannerDivider} />
+                <View style={styles.bannerItem}>
+                  <Text style={styles.bannerNum}>
+                    {dtcHistory.reduce((n, d) => n + (d.codes?.length || 0), 0)}
+                  </Text>
+                  <Text style={styles.bannerLabel}>Codes Found</Text>
+                </View>
+              </>
+            )}
           </LinearGradient>
         )}
 
@@ -253,9 +441,9 @@ export default function HistoryScreen({ navigation }) {
           </View>
         ) : (
           <FlatList
-            data={activeTab === 0 ? sessions : dtcHistory}
+            data={tabData}
             keyExtractor={(item, i) => item.id || String(i)}
-            renderItem={activeTab === 0 ? renderSession : renderDtc}
+            renderItem={tabRenderer}
             contentContainerStyle={styles.list}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#8B0000']} />}
             ListEmptyComponent={<Empty tab={activeTab} />}
@@ -325,4 +513,18 @@ const styles = StyleSheet.create({
   emptyBox:  { alignItems: 'center', paddingVertical: 60, paddingHorizontal: 40 },
   emptyTitle:{ fontSize: 18, fontWeight: '700', color: '#1F2937', marginTop: 16, marginBottom: 8 },
   emptyText: { fontSize: 13, color: '#9CA3AF', textAlign: 'center', lineHeight: 20 },
+
+  // Inspection card extras
+  inspMetaRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingBottom: 4,
+  },
+  inspMetaText: { fontSize: 12, color: '#6B7280', fontWeight: '500' },
+  shareInspectionBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 10,
+    borderTopWidth: 1, borderTopColor: '#F3F4F6',
+    backgroundColor: '#FEF2F2',
+  },
+  shareInspectionText: { fontSize: 13, fontWeight: '700', color: '#8B0000' },
 });

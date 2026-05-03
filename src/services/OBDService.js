@@ -586,12 +586,37 @@ class OBDService {
     await this._delay(200);
   }
 
+  // ── Try to enter an extended diagnostic session ──────────────────────────
+  // Toyota ECUs are often locked in default session and reject Mode 22 with
+  // 7F22-11 ("service not supported in this session"). Sending 1081 (Toyota
+  // proprietary) or 1003 (UDS extended) first sometimes unlocks them.
+  async _tryUnlockSession() {
+    const probes = [
+      { cmd: '1081\r', name: 'Toyota extended session' },
+      { cmd: '1003\r', name: 'UDS extended diagnostic session' },
+    ];
+    for (const p of probes) {
+      const r = await this.sendCommand(p.cmd);
+      const u = (r || '').replace(/[\s\r\n>]/g, '').toUpperCase();
+      console.log(`OBD: Session probe ${p.name} (${p.cmd.trim()}) → ${(r||'').trim()}`);
+      if (u.startsWith('50')) {
+        console.log(`OBD: ${p.name} accepted — extended session active`);
+        return true;
+      }
+    }
+    return false;
+  }
+
   // ── Probe: does this ECU answer Toyota Mode 22 DIDs? ─────────────────────
   // Iterates the well-known 1KD/2KD DID set, recording which ones return
   // valid data. If at least one DID responds, we lock into Toyota mode.
   async _tryToyotaCanMode() {
     console.log('OBD: Probing Toyota Mode 22 (JOBD) on engine ECU 7E0...');
     await this._configureToyotaCan();
+
+    // Try to enter extended session first — Toyota ECUs often gate Mode 22 on this
+    await this._tryUnlockSession();
+
     this.toyotaSupportedDIDs = new Set();
 
     for (const [name, did] of Object.entries(TOYOTA_DIDS)) {

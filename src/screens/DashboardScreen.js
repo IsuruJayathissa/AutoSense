@@ -148,12 +148,12 @@ export default function DashboardScreen({ navigation }) {
             onPress={toggleDemoMode}
             activeOpacity={0.7}
             style={[styles.statusBadge, {
-              backgroundColor: demoMode ? '#8B5CF6' : (obdConnected ? '#10B981' : '#F59E0B'),
+              backgroundColor: (demoMode || obdConnected) ? '#10B981' : '#F59E0B',
             }]}
           >
             <View style={styles.statusDot} />
             <Text style={styles.statusBadgeText}>
-              {demoMode ? 'DEMO' : (obdConnected ? 'LIVE' : 'SIM')}
+              {(demoMode || obdConnected) ? 'LIVE' : 'SIM'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -163,7 +163,7 @@ export default function DashboardScreen({ navigation }) {
           showsVerticalScrollIndicator={false}
         >
           {/* Connection Warning */}
-          {(!obdConnected) && (
+          {(!obdConnected && !demoMode) && (
             <TouchableOpacity
               style={styles.warningCard}
               onPress={() => navigation.navigate('OBDConnection')}
@@ -177,8 +177,8 @@ export default function DashboardScreen({ navigation }) {
               >
                 <Ionicons name="warning" size={24} color="#FFFFFF" />
                 <View style={styles.warningTextContainer}>
-                  <Text style={styles.warningTitle}>Simulated Data Active</Text>
-                  <Text style={styles.warningSubtitle}>Tap to connect real OBD-II device</Text>
+                  <Text style={styles.warningTitle}>OBD-II Not Connected</Text>
+                  <Text style={styles.warningSubtitle}>Tap to connect your OBD-II device</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
               </LinearGradient>
@@ -212,43 +212,19 @@ export default function DashboardScreen({ navigation }) {
               activeOpacity={0.85}
             >
               <LinearGradient
-                colors={['#6B7280', '#4B5563']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.warningGradient}
-              >
-                <Ionicons name="information-circle" size={24} color="#FFFFFF" />
-                <View style={styles.warningTextContainer}>
-                  <Text style={styles.warningTitle}>Live data not supported</Text>
-                  <Text style={styles.warningSubtitle}>
-                    This vehicle has no Mode 01 PIDs. Tap to enable Demo Mode for presentation.
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
-              </LinearGradient>
-            </TouchableOpacity>
-          )}
-
-          {/* Demo mode banner */}
-          {demoMode && (
-            <TouchableOpacity
-              style={styles.warningCard}
-              onPress={toggleDemoMode}
-              activeOpacity={0.85}
-            >
-              <LinearGradient
-                colors={['#8B5CF6', '#6D28D9']}
+                colors={['#10B981', '#059669']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={styles.warningGradient}
               >
                 <Ionicons name="play-circle" size={24} color="#FFFFFF" />
                 <View style={styles.warningTextContainer}>
-                  <Text style={styles.warningTitle}>Demo Mode Active</Text>
+                  <Text style={styles.warningTitle}>Tap to Start Live Data</Text>
                   <Text style={styles.warningSubtitle}>
-                    Showing simulated sensor values. Tap to disable.
+                    Begin streaming sensor readings from your vehicle.
                   </Text>
                 </View>
+                <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
               </LinearGradient>
             </TouchableOpacity>
           )}
