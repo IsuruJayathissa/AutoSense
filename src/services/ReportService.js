@@ -632,6 +632,194 @@ class ReportService {
       [{ text: 'OK', onPress: () => Linking.openURL(url) }]
     );
   }
+
+  // ── Plain-text report generation ───────────────────────────────────────────
+  // Produces a clean, readable text version of the inspection report that can
+  // be shared via WhatsApp, SMS, email body, or copied to clipboard. Avoids
+  // the file-attachment limitations of Expo Go entirely.
+  generateInspectionText({
+    vehicle,
+    inspectorName,
+    odometer,
+    results = {},
+    ecuSnapshot,
+    healthScore,
+    faultCodes = [],
+    notes,
+    timestamp,
+  }) {
+    const dateStr = timestamp
+      ? new Date(timestamp).toLocaleString()
+      : new Date().toLocaleString();
+
+    const vehicleName = vehicle
+      ? `${vehicle.brand || ''} ${vehicle.model || ''}`.trim() || 'Unknown Vehicle'
+      : 'Unknown Vehicle';
+
+    const summary = summarizeResults(results);
+    const overall = summary.red > 0 ? 'Action Needed' : summary.yellow > 0 ? 'Monitor' : 'Good';
+    const overallEmoji = summary.red > 0 ? '🔴' : summary.yellow > 0 ? '🟡' : '🟢';
+
+    const SEP = '━━━━━━━━━━━━━━━━━━━━';
+    const lines = [];
+
+    // Header
+    lines.push('🚗 *VEHICLE INSPECTION REPORT*');
+    lines.push(SEP);
+    lines.push(`🚙 ${vehicleName}${vehicle?.vehicleNumber ? `  (${vehicle.vehicleNumber})` : ''}`);
+    if (vehicle?.year) lines.push(`📅 Year: ${vehicle.year}`);
+    if (vehicle?.engineType) lines.push(`⚙️  Engine: ${vehicle.engineType}`);
+    if (inspectorName) lines.push(`👤 Inspector: ${inspectorName}`);
+    if (odometer) lines.push(`📊 Odometer: ${odometer} km`);
+    lines.push(`🕐 ${dateStr}`);
+    lines.push('');
+
+    // Summary
+    lines.push(SEP);
+    lines.push('*SUMMARY*');
+    lines.push(SEP);
+    lines.push(`Status: ${overallEmoji} ${overall}`);
+    if (healthScore != null) lines.push(`Engine Health: ${healthScore}/100`);
+    lines.push('');
+    lines.push(`🟢 Good:    ${summary.green}`);
+    lines.push(`🟡 Monitor: ${summary.yellow}`);
+    lines.push(`🔴 Action:  ${summary.red}`);
+    lines.push(`⚪ N/A:     ${summary.na}`);
+    lines.push('');
+
+    // Items needing attention (red + yellow)
+    const flagged = [];
+    INSPECTION_SECTIONS.forEach((section) => {
+      section.items.forEach((item) => {
+        const r = results[item.id];
+        if (r && (r.status === 'red' || r.status === 'yellow')) {
+          flagged.push({
+            section: section.title,
+            label: item.label,
+            status: r.status,
+            notes: r.notes,
+          });
+        }
+      });
+    });
+
+    if (flagged.length > 0) {
+      lines.push(SEP);
+      lines.push('*ITEMS NEEDING ATTENTION*');
+      lines.push(SEP);
+
+      // Group by section
+      let currentSection = '';
+      flagged
+        .sort((a, b) => {
+          // Red before yellow; then by section
+          if (a.status !== b.status) return a.status === 'red' ? -1 : 1;
+          return a.section.localeCompare(b.section);
+        })
+        .forEach((f) => {
+          const emoji = f.status === 'red' ? '🔴' : '🟡';
+          if (f.section !== currentSection) {
+            lines.push('');
+            lines.push(`▸ ${f.section}`);
+            currentSection = f.section;
+          }
+          lines.push(`  ${emoji} ${f.label}${f.notes ? `\n     📝 ${f.notes}` : ''}`);
+        });
+      lines.push('');
+    } else {
+      lines.push(SEP);
+      lines.push('✅ *ALL ITEMS LOOK GOOD*');
+      lines.push(SEP);
+      lines.push('No issues flagged in this inspection.');
+      lines.push('');
+    }
+
+    // ECU Snapshot
+    if (ecuSnapshot) {
+      const ecuLines = ECU_REPORT_FIELDS
+        .map((f) => {
+          const v = ecuSnapshot[f.id];
+          if (v == null || isNaN(v)) return null;
+          const display = typeof v === 'number'
+            ? (v % 1 === 0 ? v.toFixed(0) : v.toFixed(1))
+            : v;
+          return `  ${f.label}: ${display}${f.unit}`;
+        })
+        .filter(Boolean);
+
+      if (ecuLines.length > 0) {
+        lines.push(SEP);
+        lines.push('*ECU LIVE READINGS*');
+        lines.push(SEP);
+        ecuLines.forEach((l) => lines.push(l));
+        lines.push('');
+      }
+    }
+
+    // Fault codes
+    if (faultCodes.length > 0) {
+      lines.push(SEP);
+      lines.push(`*FAULT CODES (${faultCodes.length})*`);
+      lines.push(SEP);
+      faultCodes.slice(0, 10).forEach((f, i) => {
+        lines.push(`${i + 1}. ${f.code} — ${f.description || '—'}`);
+        if (f.severity) lines.push(`   Severity: ${f.severity}`);
+        if (f.cause) lines.push(`   Cause: ${f.cause}`);
+      });
+      if (faultCodes.length > 10) lines.push(`...and ${faultCodes.length - 10} more`);
+      lines.push('');
+    }
+
+    // Notes
+    if (notes && notes.trim()) {
+      lines.push(SEP);
+      lines.push('*NOTES*');
+      lines.push(SEP);
+      lines.push(notes.trim());
+      lines.push('');
+    }
+
+    // Footer
+    lines.push(SEP);
+    lines.push('— Generated by AutoSense');
+
+    return lines.join('\n');
+  }
+
+  // Share the inspection as a plain-text message via the system Share sheet
+  // (lets user pick WhatsApp / SMS / Email / Copy / etc. — works in Expo Go).
+  async shareInspectionAsText(data) {
+    const text = this.generateInspectionText(data);
+    const vehicleLine = data?.vehicle
+      ? `${data.vehicle.brand || ''} ${data.vehicle.model || ''}`.trim()
+      : '';
+
+    await Share.share({
+      title: `Vehicle Inspection${vehicleLine ? ' — ' + vehicleLine : ''}`,
+      message: text,
+    });
+    return text;
+  }
+
+  // Send the text-format report directly to WhatsApp (skip the share sheet).
+  // Falls back to the system share sheet if WhatsApp isn't installed.
+  async sendInspectionTextToWhatsApp(data) {
+    const text = this.generateInspectionText(data);
+    const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
+
+    const supported = await Linking.canOpenURL(url);
+    if (supported) {
+      await Linking.openURL(url);
+      return text;
+    }
+
+    // Fallback: system share sheet with the text
+    await Share.share({
+      title: 'Vehicle Inspection Report',
+      message: text,
+    });
+    return text;
+  }
 }
 
 export default new ReportService();

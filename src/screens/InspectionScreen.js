@@ -75,6 +75,8 @@ export default function InspectionScreen({ navigation }) {
   const [generating, setGenerating] = useState(false);
   const [sharingWhatsApp, setSharingWhatsApp] = useState(false);
   const [lastReportUri, setLastReportUri] = useState(null);
+  const [sharingText, setSharingText] = useState(false);
+  const [sharingTextWhatsApp, setSharingTextWhatsApp] = useState(false);
 
   useEffect(() => {
     loadVehicle();
@@ -238,6 +240,48 @@ export default function InspectionScreen({ navigation }) {
       Alert.alert('WhatsApp Share Failed', err?.message || 'Could not share via WhatsApp.');
     } finally {
       setSharingWhatsApp(false);
+    }
+  };
+
+  // ── Share as plain text ──────────────────────────────────────────────────
+  // Works in Expo Go (no file modules needed). User picks WhatsApp/SMS/email
+  // from the system share sheet and sends the report as a text message.
+  const buildTextPayload = () => {
+    const health = scoreEngineHealth(ecuSnapshot);
+    return {
+      vehicle,
+      inspectorName,
+      odometer,
+      results,
+      ecuSnapshot,
+      healthScore: health?.score ?? null,
+      faultCodes,
+      notes: generalNotes,
+    };
+  };
+
+  const handleShareAsText = async () => {
+    setSharingText(true);
+    try {
+      // Save to records first so the inspection isn't lost
+      await persistInspection();
+      await ReportService.shareInspectionAsText(buildTextPayload());
+    } catch (err) {
+      Alert.alert('Share Failed', err?.message || 'Could not share.');
+    } finally {
+      setSharingText(false);
+    }
+  };
+
+  const handleSendTextWhatsApp = async () => {
+    setSharingTextWhatsApp(true);
+    try {
+      await persistInspection();
+      await ReportService.sendInspectionTextToWhatsApp(buildTextPayload());
+    } catch (err) {
+      Alert.alert('WhatsApp Failed', err?.message || 'Could not open WhatsApp.');
+    } finally {
+      setSharingTextWhatsApp(false);
     }
   };
 
@@ -433,7 +477,40 @@ export default function InspectionScreen({ navigation }) {
             ) : (
               <>
                 <Ionicons name="logo-whatsapp" size={20} color="#FFFFFF" />
-                <Text style={styles.whatsappBtnText}>Send to WhatsApp</Text>
+                <Text style={styles.whatsappBtnText}>Send File to WhatsApp</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          {/* ── Plain-text share options (always work in Expo Go) ────────── */}
+          <TouchableOpacity
+            style={styles.whatsappTextBtn}
+            onPress={handleSendTextWhatsApp}
+            disabled={sharingTextWhatsApp}
+            activeOpacity={0.85}
+          >
+            {sharingTextWhatsApp ? (
+              <ActivityIndicator color="#25D366" size="small" />
+            ) : (
+              <>
+                <Ionicons name="logo-whatsapp" size={18} color="#25D366" />
+                <Text style={styles.whatsappTextBtnText}>Send Text to WhatsApp</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.shareAsTextBtn}
+            onPress={handleShareAsText}
+            disabled={sharingText}
+            activeOpacity={0.85}
+          >
+            {sharingText ? (
+              <ActivityIndicator color="#1F2937" size="small" />
+            ) : (
+              <>
+                <Ionicons name="chatbox-outline" size={18} color="#1F2937" />
+                <Text style={styles.shareAsTextBtnText}>Share as Text</Text>
               </>
             )}
           </TouchableOpacity>
@@ -715,6 +792,23 @@ const styles = StyleSheet.create({
     paddingVertical: 14, borderRadius: 12, marginTop: 10,
   },
   whatsappBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+
+  // Text-share variants (work without expo-print/expo-sharing)
+  whatsappTextBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, backgroundColor: '#FFFFFF',
+    paddingVertical: 12, borderRadius: 12, marginTop: 10,
+    borderWidth: 1.5, borderColor: '#25D366',
+  },
+  whatsappTextBtnText: { color: '#25D366', fontWeight: '700', fontSize: 14 },
+
+  shareAsTextBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, backgroundColor: '#FFFFFF',
+    paddingVertical: 12, borderRadius: 12, marginTop: 10,
+    borderWidth: 1.5, borderColor: '#1F2937',
+  },
+  shareAsTextBtnText: { color: '#1F2937', fontWeight: '700', fontSize: 14 },
 
   secondaryBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',

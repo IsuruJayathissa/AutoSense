@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -17,8 +17,10 @@ import HistoryScreen from '../screens/HistoryScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import DataChartsScreen from '../screens/DataChartsScreen';
 import DataCollectionScreen from '../screens/DataCollectionScreen';
-import AIDiagnosticsScreen from '../screens/AIDiagnosticsScreen';
 import InspectionScreen from '../screens/InspectionScreen';
+import InspectionDetailScreen from '../screens/InspectionDetailScreen';
+import AnalysisScreen from '../screens/AnalysisScreen';
+import AssistantScreen from '../screens/AssistantScreen';
 
 const Stack = createStackNavigator();
 
@@ -51,8 +53,10 @@ export default function AppNavigator() {
             <Stack.Screen name="History" component={HistoryScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="DataCollection" component={DataCollectionScreen} />
-            <Stack.Screen name="AIDiagnostics" component={AIDiagnosticsScreen} />
             <Stack.Screen name="Inspection" component={InspectionScreen} />
+            <Stack.Screen name="InspectionDetail" component={InspectionDetailScreen} />
+            <Stack.Screen name="Analysis" component={AnalysisScreen} />
+            <Stack.Screen name="Assistant" component={AssistantScreen} />
           </>
         ) : (
           <Stack.Screen name="VehicleAuth" component={VehicleAuthScreen} />

@@ -109,6 +109,13 @@ export default function HomeScreen({ navigation }) {
       screen: 'History',
       color: '#8B0000',
     },
+    {
+      id: '10',
+      icon: 'trending-up-outline',
+      title: 'Vehicle Analysis',
+      screen: 'Analysis',
+      color: '#8B0000',
+    },
     // ── NEW: Data Collection for AI model training ─────────────────────────
     {
       id: '7',
@@ -119,9 +126,9 @@ export default function HomeScreen({ navigation }) {
     },
     {
       id: '9',
-      icon: 'hardware-chip-outline',
-      title: 'AI Diagnostics',
-      screen: 'AIDiagnostics',
+      icon: 'chatbubbles-outline',
+      title: 'AutoSense Assistant',
+      screen: 'Assistant',
       color: '#8B0000',
     },
     {

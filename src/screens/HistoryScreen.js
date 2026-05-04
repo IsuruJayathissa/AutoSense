@@ -1,22 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList,
-  TouchableOpacity, StatusBar, Alert,
+  TouchableOpacity, StatusBar,
   ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { collection, getDocs, query, where } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { auth, db } from '../config/firebase';
-import ReportService from '../services/ReportService';
 import InspectionService from '../services/InspectionService';
 
-const LABEL_COLOR  = { Normal: '#10B981', Warning: '#F59E0B', Critical: '#EF4444' };
-const LABEL_ICON   = { Normal: 'checkmark-circle', Warning: 'warning', Critical: 'alert-circle' };
 const DTC_HIST_KEY = '@svd_dtc_history';
-const TABS = ['Sessions', 'Inspections', 'DTC History'];
+const TABS = ['Inspections', 'DTC History'];
 
 function formatDate(val) {
   if (!val) return '—';
@@ -24,63 +19,26 @@ function formatDate(val) {
   return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-function StatChip({ label, value, color }) {
-  return (
-    <View style={styles.chip}>
-      <Text style={styles.chipLabel}>{label}</Text>
-      <Text style={[styles.chipValue, color ? { color } : null]}>{value}</Text>
-    </View>
-  );
-}
-
 export default function HistoryScreen({ navigation }) {
   const [activeTab,    setActiveTab]    = useState(0);
-  const [sessions,     setSessions]     = useState([]);
   const [inspections,  setInspections]  = useState([]);
   const [dtcHistory,   setDtcHistory]   = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [refreshing,   setRefreshing]   = useState(false);
-  const [exporting,    setExporting]    = useState(false);
-  const [sharingId,    setSharingId]    = useState(null);
 
   useEffect(() => { loadAll(); }, []);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
-    await Promise.all([loadSessions(), loadInspections(), loadDtcHistory()]);
+    await Promise.all([loadInspections(), loadDtcHistory()]);
     setLoading(false);
   }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([loadSessions(), loadInspections(), loadDtcHistory()]);
+    await Promise.all([loadInspections(), loadDtcHistory()]);
     setRefreshing(false);
   }, []);
-
-  // ── Firestore: training sessions ──────────────────────────────────────────
-  // We avoid orderBy in the query to skip the composite-index requirement
-  // (where + orderBy on different fields would otherwise need an index).
-  // Sort client-side instead — fine for the small per-user dataset sizes here.
-  const loadSessions = async () => {
-    try {
-      const userId = auth.currentUser?.uid;
-      if (!userId) return;
-      const q = query(
-        collection(db, 'trainingData'),
-        where('userId', '==', userId)
-      );
-      const snap = await getDocs(q);
-      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      docs.sort((a, b) => {
-        const ta = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
-        const tb = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
-        return tb - ta;
-      });
-      setSessions(docs);
-    } catch (e) {
-      console.warn('HistoryScreen: loadSessions error', e.message);
-    }
-  };
 
   // ── Firestore: vehicle inspections ───────────────────────────────────────
   const loadInspections = async () => {
@@ -89,36 +47,6 @@ export default function HistoryScreen({ navigation }) {
       setInspections(docs);
     } catch (e) {
       console.warn('HistoryScreen: loadInspections error', e.message);
-    }
-  };
-
-  // Re-generate and share a previously saved inspection's report.
-  const handleShareInspection = async (item) => {
-    setSharingId(item.id);
-    try {
-      const vehicle = {
-        vehicleId:     item.vehicleId,
-        vehicleNumber: item.vehicleNumber,
-        brand:         item.brand,
-        model:         item.model,
-        year:          item.year,
-        engineType:    item.engineType,
-      };
-      await ReportService.exportInspectionPDF({
-        vehicle,
-        inspectorName: item.inspectorName,
-        odometer:      item.odometer,
-        results:       item.results,
-        ecuSnapshot:   item.ecuSnapshot,
-        healthScore:   item.healthScore,
-        faultCodes:    item.faultCodes || [],
-        notes:         item.notes,
-        timestamp:     item.createdAt?.toMillis ? item.createdAt.toMillis() : Date.now(),
-      });
-    } catch (e) {
-      Alert.alert('Share Failed', e.message);
-    } finally {
-      setSharingId(null);
     }
   };
 
@@ -132,152 +60,55 @@ export default function HistoryScreen({ navigation }) {
     }
   };
 
-  // ── Export PDF report ─────────────────────────────────────────────────────
-  const handleExport = async () => {
-    if (sessions.length === 0) {
-      Alert.alert('No Data', 'Record at least one OBD session before exporting.');
-      return;
-    }
-    setExporting(true);
-    try {
-      await ReportService.exportPDF({
-        vehicle: null,
-        sensorData: null,
-        faultCodes: dtcHistory.flatMap(d => d.codes || []),
-        healthScore: null,
-        prediction: null,
-        sessions,
-        timestamp: Date.now(),
-      });
-    } catch (e) {
-      Alert.alert('Export Failed', e.message);
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  // ── Render: session card ──────────────────────────────────────────────────
-  const renderSession = ({ item }) => {
-    const lc = LABEL_COLOR[item.label] || '#6B7280';
-    return (
-      <View style={styles.card}>
-        <View style={[styles.cardAccent, { backgroundColor: lc }]} />
-        <View style={styles.cardHeader}>
-          <View style={styles.cardHeaderLeft}>
-            <Ionicons name={LABEL_ICON[item.label] || 'ellipse'} size={20} color={lc} />
-            <Text style={[styles.cardLabel, { color: lc }]}>{item.label}</Text>
-          </View>
-          <Text style={styles.cardDate}>{formatDate(item.createdAt)}</Text>
-        </View>
-
-        <View style={styles.chipRow}>
-          <StatChip label="RPM"     value={item.avg_rpm?.toFixed(0)        || '—'} />
-          <StatChip label="Coolant" value={`${item.avg_coolantTemp?.toFixed(1) || '—'}°C`} />
-          <StatChip label="Load"    value={`${item.avg_engineLoad?.toFixed(1)  || '—'}%`} />
-          <StatChip label="Voltage" value={`${item.avg_voltage?.toFixed(1)     || '—'}V`} />
-        </View>
-
-        <View style={styles.cardFooter}>
-          <Ionicons name="camera-outline" size={13} color="#9CA3AF" />
-          <Text style={styles.cardFooterText}>{item.snapshotCount || 0} snapshots</Text>
-          {item.vehicleBrand && item.vehicleBrand !== 'Unknown' && (
-            <>
-              <Text style={styles.dot}>·</Text>
-              <Ionicons name="car-sport-outline" size={13} color="#9CA3AF" />
-              <Text style={styles.cardFooterText}>{item.vehicleBrand}</Text>
-            </>
-          )}
-        </View>
-      </View>
-    );
-  };
-
-  // ── Render: inspection card ───────────────────────────────────────────────
+  // ── Render: compact inspection row ───────────────────────────────────────
   const renderInspection = ({ item }) => {
     const s = item.summary || { green: 0, yellow: 0, red: 0, na: 0, total: 0 };
-    // Worst-finding determines the accent stripe colour
     const accent = s.red > 0 ? '#EF4444' : s.yellow > 0 ? '#F59E0B' : '#10B981';
-    const accentLabel = s.red > 0 ? 'Action Needed' : s.yellow > 0 ? 'Monitor' : 'Good';
-    const isSharing = sharingId === item.id;
+    const accentLabel = s.red > 0 ? 'Action' : s.yellow > 0 ? 'Monitor' : 'Good';
 
     return (
-      <View style={styles.card}>
-        <View style={[styles.cardAccent, { backgroundColor: accent }]} />
-        <View style={styles.cardHeader}>
-          <View style={styles.cardHeaderLeft}>
-            <Ionicons name="clipboard-outline" size={18} color={accent} />
-            <Text style={[styles.cardLabel, { color: accent }]}>{accentLabel}</Text>
-          </View>
-          <Text style={styles.cardDate}>{formatDate(item.createdAt)}</Text>
-        </View>
+      <TouchableOpacity
+        style={styles.inspRow}
+        onPress={() => navigation.navigate('InspectionDetail', { inspection: item })}
+        activeOpacity={0.7}
+      >
+        {/* Left coloured bar */}
+        <View style={[styles.inspBar, { backgroundColor: accent }]} />
 
-        {/* Vehicle + inspector line */}
-        <View style={styles.inspMetaRow}>
-          <Ionicons name="car-sport-outline" size={13} color="#6B7280" />
-          <Text style={styles.inspMetaText}>
+        {/* Body */}
+        <View style={styles.inspBody}>
+          <View style={styles.inspTopLine}>
+            <View style={[styles.inspStatusPill, { backgroundColor: `${accent}15`, borderColor: accent }]}>
+              <View style={[styles.inspStatusDot, { backgroundColor: accent }]} />
+              <Text style={[styles.inspStatusText, { color: accent }]}>{accentLabel}</Text>
+            </View>
+            <Text style={styles.inspDate}>{formatDate(item.createdAt)}</Text>
+          </View>
+
+          <Text style={styles.inspVehicle} numberOfLines={1}>
             {item.brand || '—'} {item.model || ''} {item.vehicleNumber ? `(${item.vehicleNumber})` : ''}
           </Text>
-        </View>
-        {!!item.inspectorName && (
-          <View style={styles.inspMetaRow}>
-            <Ionicons name="person-outline" size={13} color="#6B7280" />
-            <Text style={styles.inspMetaText}>By {item.inspectorName}</Text>
-            {item.odometer ? (
-              <>
-                <Text style={styles.dot}>·</Text>
-                <Ionicons name="speedometer-outline" size={13} color="#6B7280" />
-                <Text style={styles.inspMetaText}>{item.odometer} km</Text>
-              </>
-            ) : null}
+
+          <View style={styles.inspMetrics}>
+            <Metric color="#10B981" value={s.green}  />
+            <Metric color="#F59E0B" value={s.yellow} />
+            <Metric color="#EF4444" value={s.red}    />
+            {item.healthScore != null && (
+              <Text style={styles.inspScore}>· {item.healthScore}/100</Text>
+            )}
+            {(item.faultCodes || []).length > 0 && (
+              <Text style={styles.inspDtcCount}>· {item.faultCodes.length} DTC</Text>
+            )}
           </View>
-        )}
-
-        {/* Traffic-light counts */}
-        <View style={styles.chipRow}>
-          <StatChip label="Good"    value={String(s.green)}  color="#10B981" />
-          <StatChip label="Monitor" value={String(s.yellow)} color="#F59E0B" />
-          <StatChip label="Action"  value={String(s.red)}    color="#EF4444" />
-          <StatChip label="N/A"     value={String(s.na)} />
-          {item.healthScore != null && (
-            <StatChip label="Health" value={`${item.healthScore}/100`} color={accent} />
-          )}
         </View>
 
-        <View style={styles.cardFooter}>
-          <Ionicons name="layers-outline" size={13} color="#9CA3AF" />
-          <Text style={styles.cardFooterText}>{s.total} items inspected</Text>
-          {(item.faultCodes || []).length > 0 && (
-            <>
-              <Text style={styles.dot}>·</Text>
-              <Ionicons name="warning-outline" size={13} color="#EF4444" />
-              <Text style={[styles.cardFooterText, { color: '#EF4444' }]}>
-                {item.faultCodes.length} DTC
-              </Text>
-            </>
-          )}
-        </View>
-
-        {/* Re-share button */}
-        <TouchableOpacity
-          style={styles.shareInspectionBtn}
-          onPress={() => handleShareInspection(item)}
-          disabled={isSharing}
-          activeOpacity={0.8}
-        >
-          {isSharing ? (
-            <ActivityIndicator size="small" color="#8B0000" />
-          ) : (
-            <>
-              <Ionicons name="share-outline" size={16} color="#8B0000" />
-              <Text style={styles.shareInspectionText}>Re-share Report</Text>
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
+        {/* Chevron */}
+        <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+      </TouchableOpacity>
     );
   };
 
-  // ── Render: DTC history card ──────────────────────────────────────────────
+  // ── Render: DTC history card ─────────────────────────────────────────────
   const renderDtc = ({ item }) => (
     <View style={styles.card}>
       <View style={[styles.cardAccent, { backgroundColor: '#EF4444' }]} />
@@ -302,10 +133,9 @@ export default function HistoryScreen({ navigation }) {
     </View>
   );
 
-  // ── Empty state ───────────────────────────────────────────────────────────
+  // ── Empty state ──────────────────────────────────────────────────────────
   const Empty = ({ tab }) => {
     const meta = [
-      { icon: 'layers-outline',    title: 'No Sessions Yet',    text: 'Record OBD sessions in Data Collection to see them here.' },
       { icon: 'clipboard-outline', title: 'No Inspections Yet', text: 'Complete a Vehicle Inspection from Home to see it here.' },
       { icon: 'search-outline',    title: 'No DTC Scans Yet',   text: 'Scan for fault codes in the Fault Codes screen to build history.' },
     ][tab];
@@ -319,8 +149,8 @@ export default function HistoryScreen({ navigation }) {
   };
 
   // Pick data + renderer based on the active tab
-  const tabData = activeTab === 0 ? sessions : activeTab === 1 ? inspections : dtcHistory;
-  const tabRenderer = activeTab === 0 ? renderSession : activeTab === 1 ? renderInspection : renderDtc;
+  const tabData = activeTab === 0 ? inspections : dtcHistory;
+  const tabRenderer = activeTab === 0 ? renderInspection : renderDtc;
 
   // Aggregate inspection traffic-light counts for the banner
   const inspTotals = inspections.reduce((acc, ins) => {
@@ -342,15 +172,7 @@ export default function HistoryScreen({ navigation }) {
             <Ionicons name="arrow-back" size={24} color="#1F2937" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>History</Text>
-          <TouchableOpacity
-            onPress={handleExport}
-            disabled={exporting}
-            style={styles.exportBtn}
-          >
-            {exporting
-              ? <ActivityIndicator size="small" color="#8B0000" />
-              : <Ionicons name="share-outline" size={22} color="#8B0000" />}
-          </TouchableOpacity>
+          <View style={{ width: 44 }} />
         </View>
 
         {/* Tab bar */}
@@ -358,7 +180,7 @@ export default function HistoryScreen({ navigation }) {
           {TABS.map((t, i) => (
             <TouchableOpacity
               key={t}
-              style={[styles.tab, activeTab === i && styles.tabActive]}
+              style={styles.tab}
               onPress={() => setActiveTab(i)}
             >
               <Text style={[styles.tabText, activeTab === i && styles.tabTextActive]}>{t}</Text>
@@ -371,29 +193,6 @@ export default function HistoryScreen({ navigation }) {
         {!loading && (
           <LinearGradient colors={['#8B0000', '#A00000']} style={styles.banner}>
             {activeTab === 0 && (
-              <>
-                <View style={styles.bannerItem}>
-                  <Text style={styles.bannerNum}>{sessions.length}</Text>
-                  <Text style={styles.bannerLabel}>Sessions</Text>
-                </View>
-                <View style={styles.bannerDivider} />
-                <View style={styles.bannerItem}>
-                  <Text style={styles.bannerNum}>{sessions.filter(s => s.label === 'Normal').length}</Text>
-                  <Text style={styles.bannerLabel}>Normal</Text>
-                </View>
-                <View style={styles.bannerDivider} />
-                <View style={styles.bannerItem}>
-                  <Text style={styles.bannerNum}>{sessions.filter(s => s.label === 'Warning').length}</Text>
-                  <Text style={styles.bannerLabel}>Warning</Text>
-                </View>
-                <View style={styles.bannerDivider} />
-                <View style={styles.bannerItem}>
-                  <Text style={styles.bannerNum}>{sessions.filter(s => s.label === 'Critical').length}</Text>
-                  <Text style={styles.bannerLabel}>Critical</Text>
-                </View>
-              </>
-            )}
-            {activeTab === 1 && (
               <>
                 <View style={styles.bannerItem}>
                   <Text style={styles.bannerNum}>{inspections.length}</Text>
@@ -416,7 +215,7 @@ export default function HistoryScreen({ navigation }) {
                 </View>
               </>
             )}
-            {activeTab === 2 && (
+            {activeTab === 1 && (
               <>
                 <View style={styles.bannerItem}>
                   <Text style={styles.bannerNum}>{dtcHistory.length}</Text>
@@ -454,6 +253,15 @@ export default function HistoryScreen({ navigation }) {
   );
 }
 
+function Metric({ color, value }) {
+  return (
+    <View style={styles.metric}>
+      <View style={[styles.metricDot, { backgroundColor: color }]} />
+      <Text style={styles.metricValue}>{value}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9FAFB' },
   safe:      { flex: 1 },
@@ -463,13 +271,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, paddingVertical: 14,
     backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
   },
-  backBtn:     { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
+  backBtn:     { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
   headerTitle: { fontSize: 20, fontWeight: '700', color: '#1F2937' },
-  exportBtn:   { width: 40, height: 40, borderRadius: 20, backgroundColor: '#FEF2F2', justifyContent: 'center', alignItems: 'center' },
 
   tabBar: { flexDirection: 'row', backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
-  tab: { flex: 1, paddingVertical: 12, alignItems: 'center', position: 'relative' },
-  tabActive: {},
+  tab:    { flex: 1, paddingVertical: 12, alignItems: 'center', position: 'relative' },
   tabText:       { fontSize: 14, fontWeight: '500', color: '#9CA3AF' },
   tabTextActive: { color: '#8B0000', fontWeight: '700' },
   tabUnderline:  { position: 'absolute', bottom: 0, left: '15%', right: '15%', height: 2, backgroundColor: '#8B0000', borderRadius: 1 },
@@ -482,6 +288,37 @@ const styles = StyleSheet.create({
 
   list: { padding: 16, paddingBottom: 40 },
 
+  // Compact inspection row
+  inspRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#FFFFFF', borderRadius: 12, marginBottom: 10,
+    overflow: 'hidden', borderWidth: 1, borderColor: '#E5E7EB',
+    paddingRight: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 3, elevation: 1,
+  },
+  inspBar: { width: 5, alignSelf: 'stretch' },
+  inspBody: { flex: 1, paddingVertical: 12, paddingHorizontal: 12 },
+  inspTopLine: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: 6,
+  },
+  inspStatusPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 8, paddingVertical: 2,
+    borderRadius: 8, borderWidth: 1,
+  },
+  inspStatusDot: { width: 5, height: 5, borderRadius: 3 },
+  inspStatusText: { fontSize: 11, fontWeight: '700' },
+  inspDate: { fontSize: 11, color: '#9CA3AF' },
+  inspVehicle: { fontSize: 14, fontWeight: '600', color: '#1F2937', marginBottom: 4 },
+  inspMetrics: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  metric: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  metricDot: { width: 8, height: 8, borderRadius: 4 },
+  metricValue: { fontSize: 12, fontWeight: '700', color: '#374151' },
+  inspScore: { fontSize: 11, color: '#6B7280', fontWeight: '600' },
+  inspDtcCount: { fontSize: 11, color: '#EF4444', fontWeight: '700' },
+
+  // DTC card (kept for DTC tab)
   card: {
     backgroundColor: '#FFFFFF', borderRadius: 16, marginBottom: 12,
     overflow: 'hidden', borderWidth: 1, borderColor: '#E5E7EB',
@@ -492,15 +329,6 @@ const styles = StyleSheet.create({
   cardHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   cardLabel:      { fontSize: 15, fontWeight: '700' },
   cardDate:       { fontSize: 11, color: '#9CA3AF' },
-
-  chipRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 14, paddingBottom: 10, flexWrap: 'wrap' },
-  chip:      { backgroundColor: '#F3F4F6', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, alignItems: 'center' },
-  chipLabel: { fontSize: 9, color: '#9CA3AF', marginBottom: 2 },
-  chipValue: { fontSize: 13, fontWeight: '700', color: '#1F2937' },
-
-  cardFooter:     { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 14, paddingBottom: 12 },
-  cardFooterText: { fontSize: 12, color: '#9CA3AF' },
-  dot:            { fontSize: 12, color: '#D1D5DB' },
 
   noDtcText: { fontSize: 13, color: '#10B981', paddingHorizontal: 14, paddingBottom: 12 },
   dtcList:   { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 14, paddingBottom: 12 },
@@ -513,18 +341,4 @@ const styles = StyleSheet.create({
   emptyBox:  { alignItems: 'center', paddingVertical: 60, paddingHorizontal: 40 },
   emptyTitle:{ fontSize: 18, fontWeight: '700', color: '#1F2937', marginTop: 16, marginBottom: 8 },
   emptyText: { fontSize: 13, color: '#9CA3AF', textAlign: 'center', lineHeight: 20 },
-
-  // Inspection card extras
-  inspMetaRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 14, paddingBottom: 4,
-  },
-  inspMetaText: { fontSize: 12, color: '#6B7280', fontWeight: '500' },
-  shareInspectionBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, paddingVertical: 10,
-    borderTopWidth: 1, borderTopColor: '#F3F4F6',
-    backgroundColor: '#FEF2F2',
-  },
-  shareInspectionText: { fontSize: 13, fontWeight: '700', color: '#8B0000' },
 });
