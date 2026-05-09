@@ -72,11 +72,8 @@ export default function InspectionScreen({ navigation }) {
 
   // Submission state
   const [saving, setSaving] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [sharingWhatsApp, setSharingWhatsApp] = useState(false);
-  const [lastReportUri, setLastReportUri] = useState(null);
-  const [sharingText, setSharingText] = useState(false);
   const [sharingTextWhatsApp, setSharingTextWhatsApp] = useState(false);
+  const [recipientPhone, setRecipientPhone] = useState('');
 
   useEffect(() => {
     loadVehicle();
@@ -180,72 +177,7 @@ export default function InspectionScreen({ navigation }) {
     }
   };
 
-  // ── Generate PDF ─────────────────────────────────────────────────────────
-  const handleGenerateReport = async () => {
-    setGenerating(true);
-    try {
-      // Save first so the user has a record even if export fails
-      await persistInspection();
-
-      const health = scoreEngineHealth(ecuSnapshot);
-      const uri = await ReportService.exportInspectionPDF({
-        vehicle,
-        inspectorName,
-        odometer,
-        results,
-        ecuSnapshot,
-        healthScore: health?.score ?? null,
-        faultCodes,
-        notes: generalNotes,
-      });
-      setLastReportUri(uri);
-
-      // Confirm success — share sheet may have already opened above this Alert
-      const isHtml = (uri || '').toLowerCase().endsWith('.html');
-      Alert.alert(
-        'Report Generated',
-        isHtml
-          ? 'Your inspection report was saved as HTML.\n\nFor true PDF output, build a dev client:\n  npx expo run:android'
-          : 'Your inspection report PDF is ready and the share sheet was opened.',
-      );
-    } catch (err) {
-      Alert.alert('Report Failed', err?.message || 'Could not generate report.');
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  // ── Share to WhatsApp ────────────────────────────────────────────────────
-  const handleShareWhatsApp = async () => {
-    setSharingWhatsApp(true);
-    try {
-      const health = scoreEngineHealth(ecuSnapshot);
-      let uri = lastReportUri;
-      if (!uri) {
-        uri = await ReportService.exportInspectionPDF({
-          vehicle,
-          inspectorName,
-          odometer,
-          results,
-          ecuSnapshot,
-          healthScore: health?.score ?? null,
-          faultCodes,
-          notes: generalNotes,
-          skipShare: true, // generate-only, we'll route to WhatsApp ourselves
-        });
-        setLastReportUri(uri);
-      }
-      await ReportService.shareToWhatsApp(uri, vehicle);
-    } catch (err) {
-      Alert.alert('WhatsApp Share Failed', err?.message || 'Could not share via WhatsApp.');
-    } finally {
-      setSharingWhatsApp(false);
-    }
-  };
-
-  // ── Share as plain text ──────────────────────────────────────────────────
-  // Works in Expo Go (no file modules needed). User picks WhatsApp/SMS/email
-  // from the system share sheet and sends the report as a text message.
+  // ── Build the payload used for WhatsApp text export ─────────────────────
   const buildTextPayload = () => {
     const health = scoreEngineHealth(ecuSnapshot);
     return {
@@ -260,24 +192,14 @@ export default function InspectionScreen({ navigation }) {
     };
   };
 
-  const handleShareAsText = async () => {
-    setSharingText(true);
-    try {
-      // Save to records first so the inspection isn't lost
-      await persistInspection();
-      await ReportService.shareInspectionAsText(buildTextPayload());
-    } catch (err) {
-      Alert.alert('Share Failed', err?.message || 'Could not share.');
-    } finally {
-      setSharingText(false);
-    }
-  };
-
   const handleSendTextWhatsApp = async () => {
     setSharingTextWhatsApp(true);
     try {
       await persistInspection();
-      await ReportService.sendInspectionTextToWhatsApp(buildTextPayload());
+      await ReportService.sendInspectionTextToWhatsApp(
+        buildTextPayload(),
+        recipientPhone
+      );
     } catch (err) {
       Alert.alert('WhatsApp Failed', err?.message || 'Could not open WhatsApp.');
     } finally {
@@ -442,79 +364,69 @@ export default function InspectionScreen({ navigation }) {
             />
           </View>
 
-          {/* Action buttons */}
-          <TouchableOpacity
-            style={styles.primaryBtn}
-            onPress={handleGenerateReport}
-            disabled={generating}
-            activeOpacity={0.85}
-          >
-            <LinearGradient
-              colors={['#8B0000', '#A00000']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.primaryBtnGradient}
+          {/* ── Send to WhatsApp (improved) ─────────────────────────────── */}
+          <View style={styles.whatsappCard}>
+            <View style={styles.whatsappCardHeader}>
+              <View style={styles.whatsappLogoCircle}>
+                <Ionicons name="logo-whatsapp" size={22} color="#25D366" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.whatsappCardTitle}>Send Report via WhatsApp</Text>
+                <Text style={styles.whatsappCardSubtitle}>
+                  The full inspection — health score, fault codes, sensor data, and notes — will be saved and forwarded as a formatted message.
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.whatsappPhoneLabel}>
+              Recipient phone (optional)
+            </Text>
+            <View style={styles.whatsappPhoneRow}>
+              <Text style={styles.whatsappPhonePrefix}>+</Text>
+              <TextInput
+                style={styles.whatsappPhoneInput}
+                value={recipientPhone}
+                onChangeText={setRecipientPhone}
+                placeholder="94771234567 (with country code)"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="phone-pad"
+                autoCorrect={false}
+              />
+              {recipientPhone.length > 0 && (
+                <TouchableOpacity onPress={() => setRecipientPhone('')}>
+                  <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+                </TouchableOpacity>
+              )}
+            </View>
+            <Text style={styles.whatsappPhoneHint}>
+              Leave empty to choose a contact in WhatsApp. Include country code without "+".
+            </Text>
+
+            <TouchableOpacity
+              style={[
+                styles.whatsappPrimaryBtn,
+                sharingTextWhatsApp && styles.whatsappPrimaryBtnDisabled,
+              ]}
+              onPress={handleSendTextWhatsApp}
+              disabled={sharingTextWhatsApp}
+              activeOpacity={0.85}
             >
-              {generating ? (
+              {sharingTextWhatsApp ? (
                 <ActivityIndicator color="#FFFFFF" size="small" />
               ) : (
                 <>
-                  <Ionicons name="document-text-outline" size={20} color="#FFFFFF" />
-                  <Text style={styles.primaryBtnText}>Generate & Share Report</Text>
+                  <Ionicons name="logo-whatsapp" size={22} color="#FFFFFF" />
+                  <Text style={styles.whatsappPrimaryBtnText}>
+                    {recipientPhone.replace(/[^\d]/g, '').length >= 7
+                      ? 'Send to ' + recipientPhone.replace(/[^\d]/g, '')
+                      : 'Send via WhatsApp'}
+                  </Text>
                 </>
               )}
-            </LinearGradient>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </View>
 
-          <TouchableOpacity
-            style={styles.whatsappBtn}
-            onPress={handleShareWhatsApp}
-            disabled={sharingWhatsApp}
-            activeOpacity={0.85}
-          >
-            {sharingWhatsApp ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <>
-                <Ionicons name="logo-whatsapp" size={20} color="#FFFFFF" />
-                <Text style={styles.whatsappBtnText}>Send File to WhatsApp</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {/* ── Plain-text share options (always work in Expo Go) ────────── */}
-          <TouchableOpacity
-            style={styles.whatsappTextBtn}
-            onPress={handleSendTextWhatsApp}
-            disabled={sharingTextWhatsApp}
-            activeOpacity={0.85}
-          >
-            {sharingTextWhatsApp ? (
-              <ActivityIndicator color="#25D366" size="small" />
-            ) : (
-              <>
-                <Ionicons name="logo-whatsapp" size={18} color="#25D366" />
-                <Text style={styles.whatsappTextBtnText}>Send Text to WhatsApp</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.shareAsTextBtn}
-            onPress={handleShareAsText}
-            disabled={sharingText}
-            activeOpacity={0.85}
-          >
-            {sharingText ? (
-              <ActivityIndicator color="#1F2937" size="small" />
-            ) : (
-              <>
-                <Ionicons name="chatbox-outline" size={18} color="#1F2937" />
-                <Text style={styles.shareAsTextBtnText}>Share as Text</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
+          {/* ── Save (records-only) ──────────────────────────────────────── */}
           <TouchableOpacity
             style={styles.secondaryBtn}
             onPress={handleSave}
@@ -526,7 +438,7 @@ export default function InspectionScreen({ navigation }) {
             ) : (
               <>
                 <Ionicons name="save-outline" size={18} color="#8B0000" />
-                <Text style={styles.secondaryBtnText}>Save Without Sharing</Text>
+                <Text style={styles.secondaryBtnText}>Save Inspection</Text>
               </>
             )}
           </TouchableOpacity>
@@ -779,42 +691,65 @@ const styles = StyleSheet.create({
   },
   ecuEmptyText: { fontSize: 12, color: '#9CA3AF', marginTop: 6 },
 
-  primaryBtn: { borderRadius: 12, overflow: 'hidden', marginTop: 6 },
-  primaryBtnGradient: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, paddingVertical: 16,
+  // ── Improved WhatsApp send card ────────────────────────────────────────
+  whatsappCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16, padding: 16,
+    marginTop: 6,
+    borderWidth: 1, borderColor: '#D1FAE5',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 6, elevation: 2,
   },
-  primaryBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
-
-  whatsappBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, backgroundColor: '#25D366',
-    paddingVertical: 14, borderRadius: 12, marginTop: 10,
+  whatsappCardHeader: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+    marginBottom: 16,
   },
-  whatsappBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
-
-  // Text-share variants (work without expo-print/expo-sharing)
-  whatsappTextBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, backgroundColor: '#FFFFFF',
-    paddingVertical: 12, borderRadius: 12, marginTop: 10,
-    borderWidth: 1.5, borderColor: '#25D366',
+  whatsappLogoCircle: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: '#D1FAE5',
+    justifyContent: 'center', alignItems: 'center',
   },
-  whatsappTextBtnText: { color: '#25D366', fontWeight: '700', fontSize: 14 },
+  whatsappCardTitle: { fontSize: 16, fontWeight: '700', color: '#1F2937' },
+  whatsappCardSubtitle: { fontSize: 12, color: '#6B7280', marginTop: 4, lineHeight: 17 },
 
-  shareAsTextBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, backgroundColor: '#FFFFFF',
-    paddingVertical: 12, borderRadius: 12, marginTop: 10,
-    borderWidth: 1.5, borderColor: '#1F2937',
+  whatsappPhoneLabel: {
+    fontSize: 12, fontWeight: '600', color: '#374151',
+    marginBottom: 6, marginTop: 4,
   },
-  shareAsTextBtnText: { color: '#1F2937', fontWeight: '700', fontSize: 14 },
+  whatsappPhoneRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1, borderColor: '#E5E7EB',
+    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 4,
+  },
+  whatsappPhonePrefix: {
+    fontSize: 16, fontWeight: '600', color: '#6B7280',
+  },
+  whatsappPhoneInput: {
+    flex: 1, fontSize: 15, color: '#1F2937',
+    paddingVertical: 10,
+  },
+  whatsappPhoneHint: {
+    fontSize: 11, color: '#9CA3AF',
+    marginTop: 6, marginBottom: 14, fontStyle: 'italic',
+  },
 
+  whatsappPrimaryBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 10, backgroundColor: '#25D366',
+    paddingVertical: 16, borderRadius: 12,
+    shadowColor: '#25D366', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3, shadowRadius: 8, elevation: 4,
+  },
+  whatsappPrimaryBtnDisabled: { opacity: 0.6 },
+  whatsappPrimaryBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
+
+  // ── Save (records-only) ────────────────────────────────────────────────
   secondaryBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 8, backgroundColor: '#FFFFFF',
     paddingVertical: 12, borderRadius: 12,
-    borderWidth: 1.5, borderColor: '#8B0000', marginTop: 10,
+    borderWidth: 1.5, borderColor: '#8B0000', marginTop: 12,
   },
   secondaryBtnText: { color: '#8B0000', fontWeight: '700', fontSize: 14 },
 });

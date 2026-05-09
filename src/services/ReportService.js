@@ -148,7 +148,7 @@ function esc(value) {
 class ReportService {
 
   // ── Diagnostic report (existing) ───────────────────────────────────────────
-  generateHTML({ vehicle, sensorData, faultCodes = [], healthScore, prediction, sessions = [], timestamp }) {
+  generateHTML({ vehicle, sensorData, faultCodes = [], healthScore, sessions = [], timestamp }) {
     const dateStr = timestamp
       ? new Date(timestamp).toLocaleString()
       : new Date().toLocaleString();
@@ -157,7 +157,6 @@ class ReportService {
       ? `${vehicle.brand || ''} ${vehicle.model || ''} (${vehicle.year || '—'})`
       : 'Unknown Vehicle';
 
-    const predColor = prediction ? (LABEL_COLOR[prediction.label] || '#6B7280') : '#6B7280';
 
     const dtcRows = faultCodes.length
       ? faultCodes.map(f => `
@@ -234,7 +233,6 @@ class ReportService {
     .meta-item { background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 8px; padding: 10px 14px; flex: 1; min-width: 120px; }
     .meta-item .val { font-size: 18px; font-weight: 700; }
     .meta-item .lbl { font-size: 10px; color: #9CA3AF; margin-top: 2px; }
-    .prediction-box { border: 2px solid ${predColor}; border-radius: 10px; padding: 14px; margin-bottom: 16px; background: ${predColor}10; }
     .prob-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 12px; }
     .prob-bar-bg { flex: 1; background: #E5E7EB; border-radius: 3px; height: 8px; overflow: hidden; }
     .footer { margin-top: 32px; font-size: 10px; color: #9CA3AF; text-align: center; padding-top: 12px; border-top: 1px solid #E5E7EB; }
@@ -271,18 +269,6 @@ class ReportService {
     <div class="score-bar" style="width:${hScore}%;background:${hColor}"></div>
   </div>
   <p style="font-size:11px;color:#9CA3AF">0 — Critical &nbsp;&nbsp;&nbsp; 100 — Excellent</p>
-
-  ${prediction ? `
-  <h2>AI Diagnosis</h2>
-  <div class="prediction-box">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-      <span class="score-label" style="color:${predColor}">${esc(prediction.label)}</span>
-      <span style="color:#6B7280;font-size:12px">${prediction.confidence}% confidence</span>
-    </div>
-    <div class="prob-row"><span style="width:60px">Normal</span><div class="prob-bar-bg"><div class="score-bar" style="width:${prediction.probabilities?.Normal || 0}%;background:#10B981"></div></div><b style="color:#10B981">${prediction.probabilities?.Normal || 0}%</b></div>
-    <div class="prob-row"><span style="width:60px">Warning</span><div class="prob-bar-bg"><div class="score-bar" style="width:${prediction.probabilities?.Warning || 0}%;background:#F59E0B"></div></div><b style="color:#F59E0B">${prediction.probabilities?.Warning || 0}%</b></div>
-    <div class="prob-row"><span style="width:60px">Critical</span><div class="prob-bar-bg"><div class="score-bar" style="width:${prediction.probabilities?.Critical || 0}%;background:#DC2626"></div></div><b style="color:#DC2626">${prediction.probabilities?.Critical || 0}%</b></div>
-  </div>` : ''}
 
   ${sensorRows ? `
   <h2>Live Sensor Snapshot</h2>
@@ -659,35 +645,49 @@ class ReportService {
     const summary = summarizeResults(results);
     const overall = summary.red > 0 ? 'Action Needed' : summary.yellow > 0 ? 'Monitor' : 'Good';
     const overallEmoji = summary.red > 0 ? '🔴' : summary.yellow > 0 ? '🟡' : '🟢';
+    const statusEmoji = (s) => ({ green: '🟢', yellow: '🟡', red: '🔴', na: '⚪' })[s] || '⚪';
+    const statusLabel = (s) => ({
+      green: 'Good',
+      yellow: 'Monitor',
+      red: 'Action Needed',
+      na: 'Not Inspected',
+    })[s] || 'N/A';
 
     const SEP = '━━━━━━━━━━━━━━━━━━━━';
     const lines = [];
 
-    // Header
+    // ── Header ──────────────────────────────────────────────────────────────
     lines.push('🚗 *VEHICLE INSPECTION REPORT*');
     lines.push(SEP);
     lines.push(`🚙 ${vehicleName}${vehicle?.vehicleNumber ? `  (${vehicle.vehicleNumber})` : ''}`);
-    if (vehicle?.year) lines.push(`📅 Year: ${vehicle.year}`);
-    if (vehicle?.engineType) lines.push(`⚙️  Engine: ${vehicle.engineType}`);
-    if (inspectorName) lines.push(`👤 Inspector: ${inspectorName}`);
-    if (odometer) lines.push(`📊 Odometer: ${odometer} km`);
+    if (vehicle?.year)        lines.push(`📅 Year: ${vehicle.year}`);
+    if (vehicle?.engineType)  lines.push(`⚙️  Engine: ${vehicle.engineType}`);
+    if (vehicle?.fuelType)    lines.push(`⛽ Fuel: ${vehicle.fuelType}`);
+    if (vehicle?.transmission)lines.push(`🔧 Transmission: ${vehicle.transmission}`);
+    if (inspectorName)        lines.push(`👤 Inspector: ${inspectorName}`);
+    if (odometer)             lines.push(`📊 Odometer: ${Number(String(odometer).replace(/[^\d]/g,'')).toLocaleString()} km`);
     lines.push(`🕐 ${dateStr}`);
     lines.push('');
 
-    // Summary
+    // ── Summary ─────────────────────────────────────────────────────────────
     lines.push(SEP);
-    lines.push('*SUMMARY*');
+    lines.push('*OVERALL SUMMARY*');
     lines.push(SEP);
     lines.push(`Status: ${overallEmoji} ${overall}`);
-    if (healthScore != null) lines.push(`Engine Health: ${healthScore}/100`);
+    if (healthScore != null) {
+      const healthVerdict = healthScore >= 80 ? '✅ Excellent' : healthScore >= 60 ? '⚠️ Monitor' : '🔻 Critical';
+      lines.push(`Engine Health: ${healthScore}/100  ${healthVerdict}`);
+    }
+    const totalItems = summary.green + summary.yellow + summary.red + summary.na;
     lines.push('');
+    lines.push(`Items inspected: ${totalItems}`);
     lines.push(`🟢 Good:    ${summary.green}`);
     lines.push(`🟡 Monitor: ${summary.yellow}`);
     lines.push(`🔴 Action:  ${summary.red}`);
     lines.push(`⚪ N/A:     ${summary.na}`);
     lines.push('');
 
-    // Items needing attention (red + yellow)
+    // ── Items needing attention (red + yellow) — front-loaded for quick read ─
     const flagged = [];
     INSPECTION_SECTIONS.forEach((section) => {
       section.items.forEach((item) => {
@@ -705,25 +705,21 @@ class ReportService {
 
     if (flagged.length > 0) {
       lines.push(SEP);
-      lines.push('*ITEMS NEEDING ATTENTION*');
+      lines.push('*⚠️  ITEMS NEEDING ATTENTION*');
       lines.push(SEP);
-
-      // Group by section
       let currentSection = '';
       flagged
         .sort((a, b) => {
-          // Red before yellow; then by section
           if (a.status !== b.status) return a.status === 'red' ? -1 : 1;
           return a.section.localeCompare(b.section);
         })
         .forEach((f) => {
-          const emoji = f.status === 'red' ? '🔴' : '🟡';
           if (f.section !== currentSection) {
             lines.push('');
             lines.push(`▸ ${f.section}`);
             currentSection = f.section;
           }
-          lines.push(`  ${emoji} ${f.label}${f.notes ? `\n     📝 ${f.notes}` : ''}`);
+          lines.push(`  ${statusEmoji(f.status)} ${f.label}${f.notes ? `\n     📝 ${f.notes}` : ''}`);
         });
       lines.push('');
     } else {
@@ -734,7 +730,35 @@ class ReportService {
       lines.push('');
     }
 
-    // ECU Snapshot
+    // ── FULL inspection breakdown (every item, every section) ───────────────
+    lines.push(SEP);
+    lines.push('*📋  FULL INSPECTION BREAKDOWN*');
+    lines.push(SEP);
+    INSPECTION_SECTIONS.forEach((section) => {
+      // Per-section subtotal
+      const sectionCounts = { green: 0, yellow: 0, red: 0, na: 0 };
+      section.items.forEach((item) => {
+        const r = results[item.id];
+        const st = r?.status || 'na';
+        sectionCounts[st] = (sectionCounts[st] || 0) + 1;
+      });
+      const sectionTotal = section.items.length;
+      const sectionInspected = sectionTotal - sectionCounts.na;
+
+      lines.push('');
+      lines.push(`▸ *${section.title}*  (${sectionInspected}/${sectionTotal} inspected)`);
+      section.items.forEach((item) => {
+        const r = results[item.id];
+        const st = r?.status || 'na';
+        lines.push(`  ${statusEmoji(st)} ${item.label} — ${statusLabel(st)}`);
+        if (r?.notes && r.notes.trim()) {
+          lines.push(`     📝 ${r.notes.trim()}`);
+        }
+      });
+    });
+    lines.push('');
+
+    // ── ECU live readings ──────────────────────────────────────────────────
     if (ecuSnapshot) {
       const ecuLines = ECU_REPORT_FIELDS
         .map((f) => {
@@ -743,45 +767,70 @@ class ReportService {
           const display = typeof v === 'number'
             ? (v % 1 === 0 ? v.toFixed(0) : v.toFixed(1))
             : v;
-          return `  ${f.label}: ${display}${f.unit}`;
+          return `  • ${f.label}: ${display}${f.unit}`;
         })
         .filter(Boolean);
 
       if (ecuLines.length > 0) {
         lines.push(SEP);
-        lines.push('*ECU LIVE READINGS*');
+        lines.push('*🔬  ECU LIVE READINGS*');
         lines.push(SEP);
         ecuLines.forEach((l) => lines.push(l));
+
+        // Quick OBD interpretation
+        const interp = [];
+        if (ecuSnapshot.coolantTemp != null) {
+          const t = ecuSnapshot.coolantTemp;
+          if (t > 105) interp.push('  🔴 Coolant HOT — overheating risk');
+          else if (t > 95) interp.push('  🟡 Coolant slightly elevated');
+          else if (t < 60 && t > 0) interp.push('  ⚪ Engine still warming up');
+        }
+        if (ecuSnapshot.voltage != null) {
+          const v = ecuSnapshot.voltage;
+          if (v > 0 && v < 12.0) interp.push('  🔴 Battery LOW — alternator/battery check');
+          else if (v > 15.0) interp.push('  🟡 Charging voltage HIGH');
+        }
+        if (ecuSnapshot.engineLoad != null && ecuSnapshot.engineLoad > 85) {
+          interp.push('  🟡 Engine load very high');
+        }
+        if (interp.length) {
+          lines.push('');
+          lines.push('  Quick interpretation:');
+          interp.forEach((l) => lines.push(l));
+        }
         lines.push('');
       }
     }
 
-    // Fault codes
+    // ── Fault codes (full detail) ──────────────────────────────────────────
     if (faultCodes.length > 0) {
       lines.push(SEP);
-      lines.push(`*FAULT CODES (${faultCodes.length})*`);
+      lines.push(`*🛑  FAULT CODES (${faultCodes.length})*`);
       lines.push(SEP);
-      faultCodes.slice(0, 10).forEach((f, i) => {
-        lines.push(`${i + 1}. ${f.code} — ${f.description || '—'}`);
-        if (f.severity) lines.push(`   Severity: ${f.severity}`);
-        if (f.cause) lines.push(`   Cause: ${f.cause}`);
+      faultCodes.forEach((f, i) => {
+        lines.push('');
+        lines.push(`${i + 1}. *${f.code || '—'}*  ${f.description ? '— ' + f.description : ''}`);
+        if (f.severity)        lines.push(`   ⚠️  Severity: ${f.severity}`);
+        if (f.cause)           lines.push(`   🔍 Likely cause: ${f.cause}`);
+        if (f.fix)             lines.push(`   🔧 Suggested fix: ${f.fix}`);
+        if (f.symptoms)        lines.push(`   📋 Symptoms: ${f.symptoms}`);
       });
-      if (faultCodes.length > 10) lines.push(`...and ${faultCodes.length - 10} more`);
       lines.push('');
     }
 
-    // Notes
+    // ── Notes ──────────────────────────────────────────────────────────────
     if (notes && notes.trim()) {
       lines.push(SEP);
-      lines.push('*NOTES*');
+      lines.push('*✏️  GENERAL NOTES*');
       lines.push(SEP);
       lines.push(notes.trim());
       lines.push('');
     }
 
-    // Footer
+    // ── Footer ─────────────────────────────────────────────────────────────
     lines.push(SEP);
-    lines.push('— Generated by AutoSense');
+    lines.push('— Generated by *AutoSense* 🚗');
+    lines.push('Smart Vehicle Diagnostic System');
 
     return lines.join('\n');
   }
@@ -802,10 +851,15 @@ class ReportService {
   }
 
   // Send the text-format report directly to WhatsApp (skip the share sheet).
+  // Optional `phone` (E.164 digits, no +) sends straight to that contact;
+  // if omitted, WhatsApp opens its contact picker.
   // Falls back to the system share sheet if WhatsApp isn't installed.
-  async sendInspectionTextToWhatsApp(data) {
+  async sendInspectionTextToWhatsApp(data, phone) {
     const text = this.generateInspectionText(data);
-    const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
+    const cleanedPhone = (phone || '').replace(/[^\d]/g, '');
+    const url = cleanedPhone
+      ? `whatsapp://send?phone=${cleanedPhone}&text=${encodeURIComponent(text)}`
+      : `whatsapp://send?text=${encodeURIComponent(text)}`;
 
     const supported = await Linking.canOpenURL(url);
     if (supported) {
@@ -813,7 +867,15 @@ class ReportService {
       return text;
     }
 
-    // Fallback: system share sheet with the text
+    // WhatsApp not installed — try the universal wa.me link, then share sheet
+    if (cleanedPhone) {
+      const waMe = `https://wa.me/${cleanedPhone}?text=${encodeURIComponent(text)}`;
+      const waMeOk = await Linking.canOpenURL(waMe);
+      if (waMeOk) {
+        await Linking.openURL(waMe);
+        return text;
+      }
+    }
     await Share.share({
       title: 'Vehicle Inspection Report',
       message: text,

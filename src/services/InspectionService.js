@@ -9,6 +9,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 import { summarizeResults } from '../data/inspectionChecklist';
+import MaintenanceService from './MaintenanceService';
 
 const COLLECTION = 'inspections';
 
@@ -52,6 +53,17 @@ class InspectionService {
     };
 
     await setDoc(doc(db, COLLECTION, inspectionId), payload);
+
+    // Automatically refresh the maintenance schedule's current mileage so the
+    // home-page card and the schedule screen reflect this new reading.
+    if (odometer && String(odometer).trim()) {
+      try {
+        await MaintenanceService.updateMileage(odometer);
+      } catch (e) {
+        console.warn('Maintenance schedule update failed:', e.message);
+      }
+    }
+
     return inspectionId;
   }
 

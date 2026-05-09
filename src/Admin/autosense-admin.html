@@ -264,6 +264,7 @@
     <nav class="nav">
       <div class="nav-item active" onclick="showPage('dashboard')"><span class="nav-icon">📊</span> Dashboard</div>
       <div class="nav-item" onclick="showPage('vehicles')"><span class="nav-icon">🚗</span> Vehicles</div>
+      <div class="nav-item" onclick="showPage('inspections')"><span class="nav-icon">📋</span> Inspections</div>
       <div class="nav-item" onclick="showPage('brands')"><span class="nav-icon">🏷️</span> Brands</div>
       <div class="nav-item" onclick="showPage('training')"><span class="nav-icon">🧠</span> Training Data</div>
       <div class="nav-item" onclick="showPage('faultcodes')"><span class="nav-icon">⚠️</span> Fault Codes</div>
@@ -284,37 +285,32 @@
         <div class="page-title">Dashboard</div>
         <div class="page-sub">AutoSense app overview</div>
       </div>
-      <div class="stat-grid">
+      <div class="stat-grid" style="grid-template-columns: repeat(3, 1fr)">
         <div class="stat-card" style="--accent:#8B0000">
           <div class="stat-label">Total Vehicles</div>
           <div class="stat-value" id="stat-vehicles">—</div>
           <div class="stat-sub">Registered in app</div>
         </div>
-        <div class="stat-card" style="--accent:#10B981">
-          <div class="stat-label">Training Sessions</div>
-          <div class="stat-value" id="stat-sessions">—</div>
-          <div class="stat-sub">Labeled datasets</div>
+        <div class="stat-card" style="--accent:#3B82F6">
+          <div class="stat-label">Total Inspections</div>
+          <div class="stat-value" id="stat-inspections">—</div>
+          <div class="stat-sub">Submitted by users</div>
         </div>
         <div class="stat-card" style="--accent:#F59E0B">
           <div class="stat-label">Active Users</div>
           <div class="stat-value" id="stat-users">—</div>
-          <div class="stat-sub">Anonymous accounts</div>
-        </div>
-        <div class="stat-card" style="--accent:#3B82F6">
-          <div class="stat-label">Maintenance Records</div>
-          <div class="stat-value" id="stat-maintenance">—</div>
-          <div class="stat-sub">Across all vehicles</div>
+          <div class="stat-sub">Linked accounts</div>
         </div>
       </div>
       <div class="chart-row">
         <div class="chart-card">
-          <div class="chart-title">Training Data Labels</div>
+          <div class="chart-title">Inspection Status</div>
           <div class="donut-wrap">
             <canvas id="donut-chart" width="140" height="140"></canvas>
             <div class="donut-legend">
-              <div class="legend-item"><div class="legend-dot" style="background:#10B981"></div> Normal: <b id="count-normal">0</b></div>
-              <div class="legend-item"><div class="legend-dot" style="background:#F59E0B"></div> Warning: <b id="count-warning">0</b></div>
-              <div class="legend-item"><div class="legend-dot" style="background:#EF4444"></div> Critical: <b id="count-critical">0</b></div>
+              <div class="legend-item"><div class="legend-dot" style="background:#10B981"></div> Good: <b id="count-good">0</b></div>
+              <div class="legend-item"><div class="legend-dot" style="background:#F59E0B"></div> Monitor: <b id="count-monitor">0</b></div>
+              <div class="legend-item"><div class="legend-dot" style="background:#EF4444"></div> Action: <b id="count-action">0</b></div>
             </div>
           </div>
         </div>
@@ -331,6 +327,19 @@
           <table>
             <thead><tr><th>Plate</th><th>Brand</th><th>Model</th><th>Year</th><th>Engine</th></tr></thead>
             <tbody id="recent-vehicles-body"><tr><td colspan="5"><div class="loading"><div class="spinner"></div> Loading...</div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="table-card" style="margin-top: 20px;">
+        <div class="table-header">
+          <div class="table-title">Recent Inspections</div>
+          <button class="btn btn-outline btn-sm" onclick="showPage('inspections')">View All →</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Vehicle</th><th>Inspector</th><th>Health</th><th>Status</th></tr></thead>
+            <tbody id="recent-inspections-body"><tr><td colspan="5"><div class="loading"><div class="spinner"></div> Loading...</div></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -354,8 +363,36 @@
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Plate</th><th>Brand</th><th>Model</th><th>Year</th><th>Engine</th><th>Registered</th><th>Actions</th></tr></thead>
-            <tbody id="vehicles-body"><tr><td colspan="7"><div class="loading"><div class="spinner"></div> Loading...</div></td></tr></tbody>
+            <thead><tr><th>Plate</th><th>Brand</th><th>Model</th><th>Year</th><th>Engine</th><th>Email</th><th>Inspections</th><th>Registered</th><th>Actions</th></tr></thead>
+            <tbody id="vehicles-body"><tr><td colspan="9"><div class="loading"><div class="spinner"></div> Loading...</div></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- INSPECTIONS -->
+    <div class="page" id="page-inspections">
+      <div class="page-header">
+        <div class="page-title">Vehicle Inspections</div>
+        <div class="page-sub">Multi-point inspection records submitted by users</div>
+      </div>
+      <div class="table-card">
+        <div class="table-header">
+          <div class="filter-row">
+            <input class="search-input" id="inspection-search" placeholder="Search vehicle / inspector..." oninput="filterInspections()"/>
+            <select class="filter-select" id="inspection-status-filter" onchange="filterInspections()">
+              <option value="">All Statuses</option>
+              <option value="good">🟢 Good</option>
+              <option value="monitor">🟡 Monitor</option>
+              <option value="action">🔴 Action Needed</option>
+            </select>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="loadInspections()">↻ Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Vehicle</th><th>Inspector</th><th>Odometer</th><th>🟢</th><th>🟡</th><th>🔴</th><th>Health</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="inspections-body"><tr><td colspan="10"><div class="loading"><div class="spinner"></div> Loading...</div></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -385,7 +422,7 @@
     <div class="page" id="page-training">
       <div class="page-header">
         <div class="page-title">Training Data</div>
-        <div class="page-sub">Labeled sensor sessions for AI model training</div>
+        <div class="page-sub">Labeled sensor sessions recorded by users</div>
       </div>
       <div class="table-card">
         <div class="table-header">
@@ -501,7 +538,13 @@
           <option>Petrol</option><option>Diesel</option><option>Hybrid</option><option>Electric</option>
         </select>
       </div>
-      <div class="form-group"><label>Password</label><input id="v-password" placeholder="Min 6 characters" type="password"/></div>
+      <div class="form-group">
+        <label>Owner Email</label>
+        <input id="v-email" placeholder="owner@example.com" type="email"/>
+      </div>
+      <div class="form-group" style="font-size:11px;color:var(--muted);padding:8px 12px;background:var(--surface2);border-radius:8px">
+        ℹ️ Passwords are managed by Firebase Authentication and cannot be set or changed from this admin panel. Users sign in with their email + password from the mobile app.
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('modal-vehicle')">Cancel</button>
@@ -560,6 +603,22 @@
   </div>
 </div>
 
+<!-- Inspection Detail (full-width modal) -->
+<div class="modal-overlay" id="modal-inspection">
+  <div class="modal" style="width: 720px; max-height: 85vh; overflow-y: auto;">
+    <div class="modal-header">
+      <div class="modal-title" id="inspection-modal-title">Inspection Details</div>
+      <button class="modal-close" onclick="closeModal('modal-inspection')">✕</button>
+    </div>
+    <div id="inspection-detail-body" style="font-size:13px; line-height:1.5;">
+      <div class="loading"><div class="spinner"></div> Loading...</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('modal-inspection')">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div id="toast"></div>
 
@@ -587,12 +646,13 @@ const auth = getAuth(app);
 const db   = getFirestore(app);
 
 // Cache
-let allVehicles  = [];
-let allBrands    = [];
-let allTraining  = [];
-let allFaults    = [];
+let allVehicles    = [];
+let allBrands      = [];
+let allTraining    = [];
+let allFaults      = [];
 let allMaintenance = [];
-let allUsers     = [];
+let allUsers       = [];
+let allInspections = [];
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  AUTH
@@ -620,6 +680,7 @@ onAuthStateChanged(auth, user => {
     document.getElementById('app').style.display = 'block';
     loadDashboard();
     loadVehicles();
+    loadInspections();
     loadBrands();
     loadTraining();
     loadFaults();
@@ -647,29 +708,27 @@ window.showPage = (name) => {
 // ─────────────────────────────────────────────────────────────────────────────
 async function loadDashboard() {
   try {
-    const [vSnap, tSnap, uSnap, mSnap] = await Promise.all([
+    const [vSnap, uSnap, iSnap] = await Promise.all([
       getDocs(collection(db, 'vehicles')),
-      getDocs(collection(db, 'trainingData')),
       getDocs(collection(db, 'userVehicles')),
-      getDocs(collection(db, 'maintenance')),
+      getDocs(collection(db, 'inspections')),
     ]);
     document.getElementById('stat-vehicles').textContent    = vSnap.size;
-    document.getElementById('stat-sessions').textContent    = tSnap.size;
     document.getElementById('stat-users').textContent       = uSnap.size;
-    document.getElementById('stat-maintenance').textContent = mSnap.size;
+    document.getElementById('stat-inspections').textContent = iSnap.size;
 
-    // Label counts
-    let normal = 0, warning = 0, critical = 0;
-    tSnap.forEach(d => {
-      const l = d.data().label;
-      if (l === 'Normal') normal++;
-      else if (l === 'Warning') warning++;
-      else if (l === 'Critical') critical++;
+    // Inspection status distribution — based on each inspection's worst finding
+    let good = 0, monitor = 0, action = 0;
+    iSnap.forEach(d => {
+      const s = d.data().summary || {};
+      if      ((s.red    || 0) > 0) action++;
+      else if ((s.yellow || 0) > 0) monitor++;
+      else                          good++;
     });
-    document.getElementById('count-normal').textContent   = normal;
-    document.getElementById('count-warning').textContent  = warning;
-    document.getElementById('count-critical').textContent = critical;
-    drawDonut(normal, warning, critical);
+    document.getElementById('count-good').textContent    = good;
+    document.getElementById('count-monitor').textContent = monitor;
+    document.getElementById('count-action').textContent  = action;
+    drawDonut(good, monitor, action);
 
     // Brand chart
     const brandCounts = {};
@@ -700,7 +759,39 @@ async function loadDashboard() {
         <td><span class="badge badge-gray">${v.engineType||'—'}</span></td>
       </tr>`;
     }).join('') || '<tr><td colspan="5"><div class="empty">No vehicles yet</div></td></tr>';
+
+    // Recent inspections (newest first)
+    const inspectionsSorted = iSnap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (tsOf(b) - tsOf(a)))
+      .slice(0, 5);
+    document.getElementById('recent-inspections-body').innerHTML = inspectionsSorted.map(ins => {
+      const s = ins.summary || {};
+      const status = (s.red || 0) > 0 ? '🔴 Action' : (s.yellow || 0) > 0 ? '🟡 Monitor' : '🟢 Good';
+      const badgeClass = (s.red || 0) > 0 ? 'badge-red' : (s.yellow || 0) > 0 ? 'badge-amber' : 'badge-green';
+      return `<tr>
+        <td style="font-size:11px;color:var(--muted)">${formatTs(ins.createdAt)}</td>
+        <td><b>${ins.vehicleNumber || '—'}</b><div style="font-size:11px;color:var(--muted)">${(ins.brand||'')+' '+(ins.model||'')}</div></td>
+        <td>${ins.inspectorName || '—'}</td>
+        <td><b>${ins.healthScore != null ? ins.healthScore + '/100' : '—'}</b></td>
+        <td><span class="badge ${badgeClass}">${status}</span></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="5"><div class="empty">No inspections yet</div></td></tr>';
   } catch(e) { console.error(e); }
+}
+
+// Helpers used by inspection rendering
+function tsOf(insp) {
+  const c = insp?.createdAt;
+  if (!c) return 0;
+  if (c.toMillis) return c.toMillis();
+  if (c.seconds) return c.seconds * 1000;
+  return new Date(c).getTime() || 0;
+}
+function formatTs(c) {
+  const ms = tsOf({ createdAt: c });
+  if (!ms) return '—';
+  return new Date(ms).toLocaleString('en-US', { month:'short', day:'numeric', year:'numeric', hour:'2-digit', minute:'2-digit' });
 }
 
 function drawDonut(n, w, c) {
@@ -756,14 +847,28 @@ window.loadVehicles = loadVehicles;
 
 function renderVehicles(list) {
   const body = document.getElementById('vehicles-body');
-  if (!list.length) { body.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="empty-icon">🚗</div>No vehicles found</div></td></tr>'; return; }
-  body.innerHTML = list.map(v => `
+  if (!list.length) { body.innerHTML = '<tr><td colspan="9"><div class="empty"><div class="empty-icon">🚗</div>No vehicles found</div></td></tr>'; return; }
+
+  // Count inspections per vehicleId (uses cached allInspections)
+  const inspCounts = {};
+  allInspections.forEach(i => {
+    if (i.vehicleId) inspCounts[i.vehicleId] = (inspCounts[i.vehicleId] || 0) + 1;
+  });
+
+  body.innerHTML = list.map(v => {
+    const count = inspCounts[v.vehicleId || v.id] || 0;
+    const countBadge = count > 0
+      ? `<span class="badge badge-blue">${count}</span>`
+      : `<span style="color:var(--muted);font-size:11px">0</span>`;
+    return `
     <tr>
       <td><b>${v.vehicleNumber||'—'}</b></td>
       <td>${v.brand||'—'}</td>
       <td>${v.model||'—'}</td>
       <td>${v.year||'—'}</td>
       <td><span class="badge badge-gray">${v.engineType||'—'}</span></td>
+      <td style="font-size:12px">${v.email || '<span style="color:var(--muted)">—</span>'}</td>
+      <td>${countBadge}</td>
       <td style="font-size:11px;color:var(--muted)">${v.registeredAt ? new Date(v.registeredAt).toLocaleDateString() : '—'}</td>
       <td>
         <div style="display:flex;gap:6px">
@@ -771,7 +876,8 @@ function renderVehicles(list) {
           <button class="btn btn-danger btn-sm" onclick="deleteVehicle('${v.id}','${v.vehicleNumber}')">Delete</button>
         </div>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
 window.filterVehicles = () => {
@@ -786,7 +892,7 @@ window.filterVehicles = () => {
 window.openAddVehicle = () => {
   document.getElementById('vehicle-modal-title').textContent = 'Add Vehicle';
   document.getElementById('vehicle-edit-id').value = '';
-  ['v-number','v-brand','v-model','v-year','v-password'].forEach(id => document.getElementById(id).value = '');
+  ['v-number','v-brand','v-model','v-year','v-email'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('v-engine').value = 'Petrol';
   document.getElementById('modal-vehicle').classList.add('open');
 };
@@ -795,40 +901,41 @@ window.editVehicle = (id) => {
   const v = allVehicles.find(x => x.id === id);
   if (!v) return;
   document.getElementById('vehicle-modal-title').textContent = 'Edit Vehicle';
-  document.getElementById('vehicle-edit-id').value  = id;
-  document.getElementById('v-number').value  = v.vehicleNumber || '';
-  document.getElementById('v-brand').value   = v.brand || '';
-  document.getElementById('v-model').value   = v.model || '';
-  document.getElementById('v-year').value    = v.year || '';
-  document.getElementById('v-engine').value  = v.engineType || 'Petrol';
-  document.getElementById('v-password').value = '';
+  document.getElementById('vehicle-edit-id').value = id;
+  document.getElementById('v-number').value = v.vehicleNumber || '';
+  document.getElementById('v-brand').value  = v.brand || '';
+  document.getElementById('v-model').value  = v.model || '';
+  document.getElementById('v-year').value   = v.year || '';
+  document.getElementById('v-engine').value = v.engineType || 'Petrol';
+  document.getElementById('v-email').value  = v.email || '';
   document.getElementById('modal-vehicle').classList.add('open');
 };
 
 window.saveVehicle = async () => {
-  const id       = document.getElementById('vehicle-edit-id').value;
-  const number   = document.getElementById('v-number').value.trim().toUpperCase();
-  const brand    = document.getElementById('v-brand').value.trim();
-  const model    = document.getElementById('v-model').value.trim();
-  const year     = document.getElementById('v-year').value.trim();
-  const engine   = document.getElementById('v-engine').value;
-  const password = document.getElementById('v-password').value;
+  const id     = document.getElementById('vehicle-edit-id').value;
+  const number = document.getElementById('v-number').value.trim().toUpperCase();
+  const brand  = document.getElementById('v-brand').value.trim();
+  const model  = document.getElementById('v-model').value.trim();
+  const year   = document.getElementById('v-year').value.trim();
+  const engine = document.getElementById('v-engine').value;
+  const email  = document.getElementById('v-email').value.trim();
   if (!number || !brand || !model || !year) { showToast('Please fill all fields', 'error'); return; }
   try {
     if (id) {
       const upd = { vehicleNumber: number, brand, model, year, engineType: engine };
-      if (password) upd.password = password;
+      if (email) upd.email = email;
       await updateDoc(doc(db, 'vehicles', id), upd);
       showToast('Vehicle updated', 'success');
     } else {
-      if (!password) { showToast('Password required for new vehicle', 'error'); return; }
+      // Note: Admin-created vehicles have no Firebase Auth account. Owners must
+      // sign up through the mobile app to be able to log in.
       const vehicleId = `VEH_${Date.now()}`;
       await setDoc(doc(db, 'vehicles', vehicleId), {
         vehicleId, vehicleNumber: number, brand, model, year,
-        engineType: engine, password,
+        engineType: engine, email: email || null,
         registeredAt: new Date().toISOString(),
       });
-      showToast('Vehicle added', 'success');
+      showToast('Vehicle added (owner must sign up in the app to log in)', 'success');
     }
     closeModal('modal-vehicle');
     await loadVehicles();
@@ -845,6 +952,257 @@ window.deleteVehicle = async (id, name) => {
     await loadDashboard();
   } catch(e) { showToast('Delete failed: ' + e.message, 'error'); }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  INSPECTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+async function loadInspections() {
+  try {
+    const snap = await getDocs(collection(db, 'inspections'));
+    allInspections = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => tsOf(b) - tsOf(a)); // newest first
+    renderInspections(allInspections);
+    // Refresh vehicles render so the inspection-count column reflects new data
+    if (allVehicles.length) renderVehicles(allVehicles);
+  } catch (e) {
+    console.warn('loadInspections error:', e.message);
+    document.getElementById('inspections-body').innerHTML =
+      `<tr><td colspan="10"><div class="empty">Failed to load: ${e.message}</div></td></tr>`;
+  }
+}
+window.loadInspections = loadInspections;
+
+function inspectionStatus(ins) {
+  const s = ins.summary || {};
+  if ((s.red || 0) > 0)    return { key: 'action',  label: '🔴 Action',  badge: 'badge-red'   };
+  if ((s.yellow || 0) > 0) return { key: 'monitor', label: '🟡 Monitor', badge: 'badge-amber' };
+  return                          { key: 'good',    label: '🟢 Good',    badge: 'badge-green' };
+}
+
+function renderInspections(list) {
+  const body = document.getElementById('inspections-body');
+  if (!list.length) {
+    body.innerHTML = '<tr><td colspan="10"><div class="empty"><div class="empty-icon">📋</div>No inspections yet</div></td></tr>';
+    return;
+  }
+  body.innerHTML = list.map(ins => {
+    const s = ins.summary || {};
+    const st = inspectionStatus(ins);
+    const vehicleLine = `${ins.brand || ''} ${ins.model || ''}`.trim() || '—';
+    return `
+      <tr>
+        <td style="font-size:11px;color:var(--muted)">${formatTs(ins.createdAt)}</td>
+        <td>
+          <b>${ins.vehicleNumber || '—'}</b>
+          <div style="font-size:11px;color:var(--muted)">${vehicleLine}</div>
+        </td>
+        <td>${ins.inspectorName || '—'}</td>
+        <td style="font-size:12px">${ins.odometer ? ins.odometer + ' km' : '—'}</td>
+        <td><b style="color:#10B981">${s.green || 0}</b></td>
+        <td><b style="color:#F59E0B">${s.yellow || 0}</b></td>
+        <td><b style="color:#EF4444">${s.red || 0}</b></td>
+        <td><b>${ins.healthScore != null ? ins.healthScore + '/100' : '—'}</b></td>
+        <td><span class="badge ${st.badge}">${st.label}</span></td>
+        <td>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-outline btn-sm" onclick="viewInspection('${ins.id}')">View</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteInspection('${ins.id}')">Delete</button>
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+window.filterInspections = () => {
+  const q  = document.getElementById('inspection-search').value.toLowerCase();
+  const st = document.getElementById('inspection-status-filter').value;
+  renderInspections(allInspections.filter(ins => {
+    const text = `${ins.vehicleNumber || ''} ${ins.brand || ''} ${ins.model || ''} ${ins.inspectorName || ''}`.toLowerCase();
+    if (q && !text.includes(q)) return false;
+    if (st && inspectionStatus(ins).key !== st) return false;
+    return true;
+  }));
+};
+
+window.viewInspection = (id) => {
+  const ins = allInspections.find(i => i.id === id);
+  if (!ins) return;
+
+  const s = ins.summary || {};
+  const st = inspectionStatus(ins);
+  const sectionsHtml = renderInspectionSections(ins.results || {});
+  const ecuHtml = renderEcuSnapshot(ins.ecuSnapshot);
+  const dtcHtml = renderDtcList(ins.faultCodes || []);
+
+  const body = `
+    <div style="background:var(--surface2);padding:14px;border-radius:10px;margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+        <div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px">Vehicle</div>
+          <div style="font-size:15px;font-weight:700">${ins.vehicleNumber || '—'}</div>
+          <div style="font-size:12px;color:var(--muted)">${(ins.brand||'')+' '+(ins.model||'')+' · '+(ins.year||'—')+' · '+(ins.engineType||'—')}</div>
+        </div>
+        <span class="badge ${st.badge}" style="font-size:13px">${st.label}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;font-size:12px">
+        <div><span style="color:var(--muted)">Inspector:</span> <b>${ins.inspectorName || '—'}</b></div>
+        <div><span style="color:var(--muted)">Odometer:</span> <b>${ins.odometer ? ins.odometer + ' km' : '—'}</b></div>
+        <div><span style="color:var(--muted)">Date:</span> <b>${formatTs(ins.createdAt)}</b></div>
+        <div><span style="color:var(--muted)">Health Score:</span> <b>${ins.healthScore != null ? ins.healthScore + '/100' : '—'}</b></div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">
+      <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:10px;text-align:center">
+        <div style="font-size:18px;font-weight:800;color:#10B981">${s.green || 0}</div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase">Good</div>
+      </div>
+      <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:10px;text-align:center">
+        <div style="font-size:18px;font-weight:800;color:#F59E0B">${s.yellow || 0}</div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase">Monitor</div>
+      </div>
+      <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:10px;text-align:center">
+        <div style="font-size:18px;font-weight:800;color:#EF4444">${s.red || 0}</div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase">Action</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center">
+        <div style="font-size:18px;font-weight:800;color:var(--muted)">${s.na || 0}</div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase">N/A</div>
+      </div>
+    </div>
+
+    ${sectionsHtml}
+    ${ecuHtml}
+    ${dtcHtml}
+    ${ins.notes ? `
+      <div style="margin-top:14px;padding:12px;background:rgba(245,158,11,0.08);border-left:3px solid #F59E0B;border-radius:6px">
+        <div style="font-size:11px;font-weight:700;color:#F59E0B;margin-bottom:4px;text-transform:uppercase">General Notes</div>
+        <div style="font-size:13px">${escapeHtml(ins.notes)}</div>
+      </div>` : ''}
+  `;
+
+  document.getElementById('inspection-detail-body').innerHTML = body;
+  document.getElementById('inspection-modal-title').textContent =
+    `Inspection — ${ins.vehicleNumber || ''}`;
+  document.getElementById('modal-inspection').classList.add('open');
+};
+
+// Render the 5 inspection sections with traffic-light items
+function renderInspectionSections(results) {
+  // Use the same section order as the mobile app
+  const SECTIONS = [
+    { id: 'fluids',   title: 'Fluids & Engine Bay',
+      items: ['engine_oil','coolant','brake_fluid','transmission','power_steering','washer_fluid',
+              'air_filter','cabin_filter','drive_belts','hoses','battery_visual'] },
+    { id: 'undercar', title: 'Under-Vehicle Components',
+      items: ['brake_pads_front','brake_pads_rear','rotors','calipers','brake_lines','shocks_struts',
+              'ball_joints','tie_rods','exhaust','cv_boots','transmission_leak'] },
+    { id: 'tires',    title: 'Tires & Wheels',
+      items: ['tire_fl_tread','tire_fr_tread','tire_rl_tread','tire_rr_tread','tire_spare',
+              'tire_pressure','tire_wear'] },
+    { id: 'exterior', title: 'Exterior & Safety',
+      items: ['headlights','brake_lights','turn_signals','hazard_lights','reverse_lights',
+              'windshield','wipers','body_condition'] },
+    { id: 'interior', title: 'Interior & Electronics',
+      items: ['horn','hvac','dashboard_lights','seat_belts','airbag_indicator',
+              'windows','locks','mirrors'] },
+  ];
+  const META = {
+    green:  { color: '#10B981', label: 'Good' },
+    yellow: { color: '#F59E0B', label: 'Monitor' },
+    red:    { color: '#EF4444', label: 'Action' },
+    na:     { color: '#6B7280', label: 'N/A' },
+  };
+
+  return SECTIONS.map(section => {
+    const rows = section.items.map(itemId => {
+      const r = results[itemId] || { status: 'na', notes: '' };
+      const m = META[r.status] || META.na;
+      const niceLabel = itemId.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      return `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+          <div style="flex:1">
+            <div style="font-size:12px">${niceLabel}</div>
+            ${r.notes ? `<div style="font-size:11px;color:var(--muted);font-style:italic;margin-top:2px">📝 ${escapeHtml(r.notes)}</div>` : ''}
+          </div>
+          <div style="display:inline-flex;align-items:center;gap:5px;background:${m.color}20;border:1px solid ${m.color}50;color:${m.color};padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">
+            <span style="width:6px;height:6px;border-radius:3px;background:${m.color}"></span> ${m.label}
+          </div>
+        </div>`;
+    }).join('');
+    return `
+      <div style="margin-bottom:14px;padding:12px;background:var(--surface2);border-radius:10px">
+        <div style="font-size:12px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">${section.title}</div>
+        ${rows}
+      </div>`;
+  }).join('');
+}
+
+function renderEcuSnapshot(snap) {
+  if (!snap) return '';
+  const FIELDS = [
+    ['rpm',         'Engine RPM',          ''     ],
+    ['speed',       'Vehicle Speed',       ' km/h'],
+    ['coolantTemp', 'Coolant Temperature', ' °C'  ],
+    ['engineLoad',  'Engine Load',         ' %'   ],
+    ['throttle',    'Throttle',            ' %'   ],
+    ['voltage',     'Battery Voltage',     ' V'   ],
+    ['fuelLevel',   'Fuel Level',          ' %'   ],
+    ['intakeTemp',  'Intake Air Temp',     ' °C'  ],
+    ['maf',         'MAF Airflow',         ' g/s' ],
+  ];
+  const rows = FIELDS
+    .map(([key, label, unit]) => {
+      const v = snap[key];
+      if (v == null || isNaN(v)) return null;
+      const d = (typeof v === 'number') ? (v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)) : v;
+      return `<tr><td>${label}</td><td><b>${d}${unit}</b></td></tr>`;
+    })
+    .filter(Boolean)
+    .join('');
+  if (!rows) return '';
+  return `
+    <div style="margin-bottom:14px;padding:12px;background:var(--surface2);border-radius:10px">
+      <div style="font-size:12px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">ECU Snapshot</div>
+      <table style="width:100%"><tbody>${rows}</tbody></table>
+    </div>`;
+}
+
+function renderDtcList(codes) {
+  if (!codes || !codes.length) return '';
+  const rows = codes.map(f => `
+    <tr>
+      <td><b>${escapeHtml(f.code || '—')}</b></td>
+      <td>${escapeHtml(f.description || '—')}</td>
+      <td>${escapeHtml(f.severity || '—')}</td>
+    </tr>`).join('');
+  return `
+    <div style="margin-bottom:14px;padding:12px;background:var(--surface2);border-radius:10px">
+      <div style="font-size:12px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Fault Codes (${codes.length})</div>
+      <table style="width:100%">
+        <thead><tr><th>Code</th><th>Description</th><th>Severity</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+window.deleteInspection = async (id) => {
+  if (!confirm('Delete this inspection? This cannot be undone.')) return;
+  try {
+    await deleteDoc(doc(db, 'inspections', id));
+    showToast('Inspection deleted', 'success');
+    await loadInspections();
+    await loadDashboard();
+  } catch(e) { showToast('Delete failed: ' + e.message, 'error'); }
+};
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  BRANDS

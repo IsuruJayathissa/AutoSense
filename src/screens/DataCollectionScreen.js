@@ -219,7 +219,7 @@ export default function DataCollectionScreen({ navigation }) {
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
             <View style={styles.infoBanner}>
               <Ionicons name="information-circle" size={20} color="#8B0000" />
-              <Text style={styles.infoText}>Record driving sessions and label them to train the engine health AI model.</Text>
+              <Text style={styles.infoText}>Record driving sessions and label them with the observed engine condition for your records.</Text>
             </View>
 
             <View style={styles.sessionCard}>
@@ -307,10 +307,10 @@ export default function DataCollectionScreen({ navigation }) {
 
             <View style={styles.howCard}>
               <View style={styles.howCardBorder} />
-              <Text style={styles.howTitle}>How this helps the AI model</Text>
+              <Text style={styles.howTitle}>How session recording works</Text>
               {['Record a session while driving','App snapshots 7 sensor values every 5 seconds',
-                'Label the session based on engine condition','Labeled data uploads to Firestore training collection',
-                'Data is used to train the TensorFlow Lite model'].map((text, i) => (
+                'Label the session based on observed engine condition','Labeled data uploads to Firestore for history',
+                'Review past sessions in the History screen'].map((text, i) => (
                 <View key={i} style={styles.howRow}>
                   <View style={styles.howStep}><Text style={styles.howStepText}>{i+1}</Text></View>
                   <Text style={styles.howText}>{text}</Text>

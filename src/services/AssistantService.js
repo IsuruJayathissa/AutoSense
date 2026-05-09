@@ -2,6 +2,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 import OBDService from './OBDService';
 import InspectionService from './InspectionService';
+import MaintenanceService from './MaintenanceService';
 import { getCodeInfo } from './FaultCodeDatabase';
 import { INTENTS, FALLBACK, WELCOME_SUGGESTIONS } from '../data/chatbotKnowledge';
 
@@ -12,8 +13,16 @@ class AssistantService {
       vehicleAt: 0,
       inspections: null,
       inspectionsAt: 0,
+      maintenance: null,
+      maintenanceAt: 0,
     };
     this.CACHE_MS = 30 * 1000; // 30 seconds — context doesn't need to be real-time
+
+    // Short conversation memory — last 5 exchanges so follow-up references work
+    // ("and the coolant?", "what about that one?", "more details").
+    this._history = [];
+    this.MAX_HISTORY = 5;
+    this._lastIntentId = null;
   }
 
   // ── Welcome message + suggestions ──────────────────────────────────────────
@@ -37,10 +46,15 @@ class AssistantService {
     const intent = this.matchIntent(text);
 
     if (!intent) {
+      this._pushHistory({ role: 'user', text });
+      this._pushHistory({ role: 'bot', text: FALLBACK.text });
       return { ...FALLBACK };
     }
 
     const reply = intent.respond({ message: text, ...ctx });
+    this._lastIntentId = intent.id;
+    this._pushHistory({ role: 'user', text });
+    this._pushHistory({ role: 'bot', text: reply.text, intentId: intent.id });
 
     // Enrich with specific fault code lookup if requested
     if (reply.lookupCode) {
@@ -64,8 +78,10 @@ class AssistantService {
   // ── Intent matching ────────────────────────────────────────────────────────
   // Each intent gets a score = (# matched keywords) + bonus for explicit test().
   // The intent with the highest score wins, must be > 0.
+  // Uses light fuzzy matching so "couling temp", "battary", "feul" still hit.
   matchIntent(message) {
     const lower = message.toLowerCase();
+    const tokens = lower.split(/\s+/).filter(Boolean);
     let best = null;
     let bestScore = 0;
 
@@ -77,11 +93,23 @@ class AssistantService {
         score += 10;
       }
 
-      // Keyword score — each matched keyword adds 1, longer keywords add a small bonus
       if (Array.isArray(intent.keywords)) {
         for (const kw of intent.keywords) {
-          if (lower.includes(kw.toLowerCase())) {
-            score += 1 + (kw.length > 8 ? 0.5 : 0);
+          const k = kw.toLowerCase();
+          // Direct substring hit — strongest signal
+          if (lower.includes(k)) {
+            score += 1 + (k.length > 8 ? 0.5 : 0);
+            continue;
+          }
+          // Fuzzy: tolerate one letter difference for keywords ≥ 5 chars,
+          // catches typos like "couling" vs "coolant", "battary" vs "battery".
+          if (k.length >= 5) {
+            for (const t of tokens) {
+              if (Math.abs(t.length - k.length) <= 1 && this._levenshtein(t, k) <= 1) {
+                score += 0.6;
+                break;
+              }
+            }
           }
         }
       }
@@ -95,12 +123,36 @@ class AssistantService {
     return bestScore > 0 ? best : null;
   }
 
+  // Lightweight Levenshtein for typo tolerance. Capped at distance 2 for speed.
+  _levenshtein(a, b) {
+    if (a === b) return 0;
+    if (Math.abs(a.length - b.length) > 2) return 99;
+    const m = a.length, n = b.length;
+    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        dp[i][j] = Math.min(
+          dp[i - 1][j] + 1,
+          dp[i][j - 1] + 1,
+          dp[i - 1][j - 1] + cost
+        );
+      }
+    }
+    return dp[m][n];
+  }
+
   // ── Build the live context the intent handlers consume ─────────────────────
   async buildContext() {
     const [vehicle, inspections] = await Promise.all([
       this.getVehicle(),
       this.getInspections(),
     ]);
+
+    // Pull maintenance schedule (cached); needs vehicle to know engine type
+    const maintenance = await this.getMaintenance(vehicle?.engineType);
 
     const obdConnected = OBDService.isConnected;
     let ecuSnapshot = null;
@@ -131,7 +183,26 @@ class AssistantService {
       obdConnected,
       ecuSnapshot,
       faultCodes,
+      maintenance,                          // full schedule with statuses
+      history: this._history,               // last N exchanges
+      lastIntentId: this._lastIntentId,     // for follow-up handling
     };
+  }
+
+  // ── Maintenance schedule (cached) ──────────────────────────────────────────
+  async getMaintenance(engineType) {
+    const now = Date.now();
+    if (this._cache.maintenance && now - this._cache.maintenanceAt < this.CACHE_MS) {
+      return this._cache.maintenance;
+    }
+    try {
+      const schedule = await MaintenanceService.getSchedule(engineType || 'Diesel');
+      this._cache.maintenance = schedule;
+      this._cache.maintenanceAt = now;
+      return schedule;
+    } catch {
+      return null;
+    }
   }
 
   // ── Vehicle (cached) ───────────────────────────────────────────────────────
@@ -180,6 +251,25 @@ class AssistantService {
     this._cache.vehicleAt = 0;
     this._cache.inspections = null;
     this._cache.inspectionsAt = 0;
+    this._cache.maintenance = null;
+    this._cache.maintenanceAt = 0;
+  }
+
+  // ── Conversation memory ───────────────────────────────────────────────────
+  // Keep a rolling window of the last MAX_HISTORY × 2 messages (user + bot)
+  // so intent handlers can see what was just discussed and resolve follow-ups
+  // like "and the coolant?" or "more details".
+  _pushHistory(entry) {
+    this._history.push({ ...entry, ts: Date.now() });
+    const cap = this.MAX_HISTORY * 2;
+    if (this._history.length > cap) {
+      this._history = this._history.slice(-cap);
+    }
+  }
+
+  resetConversation() {
+    this._history = [];
+    this._lastIntentId = null;
   }
 }
 

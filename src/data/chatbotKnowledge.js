@@ -11,7 +11,8 @@
 const COMMON_SUGGESTIONS = [
   'Explain my fault codes',
   "Is my car healthy?",
-  'When should I service?',
+  'When is my next service?',
+  'Diesel care tips',
   'Fuel saving tips',
 ];
 
@@ -41,6 +42,25 @@ export const INTENTS = [
         `Try one of the suggestions below, or ask me anything.`,
       suggestions: COMMON_SUGGESTIONS,
     }),
+  },
+
+  // ─── Follow-up: "more details", "explain more", "tell me more" ───────────
+  // Uses conversation memory to resurface the last topic with extra context.
+  {
+    id: 'more_details',
+    keywords: ['more', 'tell me more', 'explain more', 'details', 'elaborate', 'continue', 'go on'],
+    respond: ({ lastIntentId, history, vehicle, faultCodes, ecuSnapshot }) => {
+      // If we have a recent topic, reflect it back rather than pretending to be fresh
+      const lastUserMsg = [...(history || [])].reverse().find(h => h.role === 'user');
+      const topic = lastIntentId ? lastIntentId.replace(/_/g, ' ') : 'the previous topic';
+      const tail = lastUserMsg ? `\n\nYour last question was: "${lastUserMsg.text}"` : '';
+      return {
+        text:
+          `Sure — happy to dig deeper into ${topic}.${tail}\n\n` +
+          `Tap a suggestion below to focus on a specific area, or ask a more targeted question (e.g. "what causes high coolant temp?").`,
+        suggestions: ['Explain my fault codes', 'Diesel care tips', 'Brake check', 'Tire care'],
+      };
+    },
   },
 
   // ─── DTC / Fault codes ───────────────────────────────────────────────────
@@ -249,11 +269,47 @@ export const INTENTS = [
     },
   },
 
-  // ─── Maintenance / service due ───────────────────────────────────────────
+  // ─── Maintenance / service due — uses live schedule when available ───────
   {
     id: 'service_due',
-    keywords: ['service', 'maintenance', 'when should i', 'oil change', 'overdue', 'due'],
-    respond: ({ latestInspection }) => {
+    keywords: ['service', 'maintenance', 'when should i', 'oil change', 'overdue', 'due',
+               'next service', 'service interval', 'service due'],
+    respond: ({ latestInspection, maintenance }) => {
+      // Prefer the user's actual maintenance schedule if it exists
+      if (maintenance && maintenance.items && maintenance.items.length) {
+        const overdue = maintenance.items.filter(i => i.status === 'overdue');
+        const dueSoon = maintenance.items.filter(i => i.status === 'due_soon');
+        const lines = [
+          `📋  Your maintenance schedule (current: ${maintenance.currentMileage.toLocaleString()} km):`,
+        ];
+        if (overdue.length) {
+          lines.push(`\n🔻 Overdue:`);
+          overdue.slice(0, 4).forEach(i => {
+            lines.push(`  • ${i.name} — overdue by ${Math.abs(i.kmUntilDue).toLocaleString()} km`);
+          });
+        }
+        if (dueSoon.length) {
+          lines.push(`\n🟡 Due soon:`);
+          dueSoon.slice(0, 4).forEach(i => {
+            lines.push(`  • ${i.name} — in ${i.kmUntilDue.toLocaleString()} km`);
+          });
+        }
+        if (!overdue.length && !dueSoon.length) {
+          const next = maintenance.items[0];
+          lines.push(`\n🟢 Everything is up to date.`);
+          if (next) {
+            lines.push(`Next up: ${next.name} in ${next.kmUntilDue.toLocaleString()} km.`);
+          }
+        }
+        lines.push(`\nTip: tap "Maintenance Schedule" under More Options to mark items as serviced.`);
+        return {
+          text: lines.join('\n'),
+          suggestions: ['Show recurring issues', "Is my car healthy?", 'Fuel saving tips'],
+          actions: [{ label: 'Open Schedule', screen: 'MaintenanceSchedule', icon: 'construct-outline' }],
+        };
+      }
+
+      // No schedule yet — show the generic guidance plus a CTA to set one up
       const lines = [
         `Typical service intervals (based on standard manufacturer guidance):`,
         `  • Engine oil & filter: every 5,000 – 10,000 km`,
@@ -276,9 +332,11 @@ export const INTENTS = [
           lines.push(`\n🟢 No urgent items flagged in your last inspection. Stick to the regular intervals above.`);
         }
       }
+      lines.push(`\n💡  Open Maintenance Schedule and run an inspection so I can give you personalised km-based advice.`);
       return {
         text: lines.join('\n'),
         suggestions: ['Show recurring issues', "Is my car healthy?", 'Fuel saving tips'],
+        actions: [{ label: 'Open Schedule', screen: 'MaintenanceSchedule', icon: 'construct-outline' }],
       };
     },
   },
@@ -393,6 +451,149 @@ export const INTENTS = [
     },
   },
 
+  // ─── Diesel / 1KD / DPF / EGR / glow plugs ───────────────────────────────
+  {
+    id: 'diesel_care',
+    keywords: ['diesel', 'dpf', 'egr', 'glow plug', 'soot', 'particulate', 'turbo', 'vnt', 'regeneration', '1kd', '2kd'],
+    respond: ({ vehicle }) => {
+      const isDiesel = (vehicle?.engineType || '').toLowerCase().includes('diesel');
+      const intro = isDiesel
+        ? `Your ${vehicleLine(vehicle)} is a diesel — here's how to keep the engine and exhaust system healthy:`
+        : `Diesel-specific maintenance tips:`;
+      return {
+        text:
+          `${intro}\n\n` +
+          `🔥  DPF (Diesel Particulate Filter):\n` +
+          `  • Drive 20+ minutes at 80+ km/h every 2 weeks to allow regeneration\n` +
+          `  • Avoid only short city trips — they clog the DPF with soot\n` +
+          `  • Use the correct low-ash oil (ACEA C2 or C3)\n\n` +
+          `💨  EGR Valve:\n` +
+          `  • Carbon build-up causes rough idle and power loss\n` +
+          `  • Italian tune-up: a long highway run can help clear deposits\n` +
+          `  • Persistent EGR fault codes mean it needs cleaning or replacement\n\n` +
+          `⚡  Glow Plugs:\n` +
+          `  • Hard cold starts = first sign of failing glow plugs\n` +
+          `  • Replace as a set every 80,000 – 100,000 km\n\n` +
+          `🌪  Turbo (VNT on 1KD):\n` +
+          `  • Don't rev or shut off immediately after hard driving — let it cool 30s\n` +
+          `  • Loss of boost or whistling = sticky vanes (clean or rebuild)\n\n` +
+          `⛽  Fuel:\n` +
+          `  • Use clean diesel from busy stations (less water/sediment)\n` +
+          `  • Replace fuel filter at the recommended interval — water in fuel destroys injectors`,
+        suggestions: ['When should I service?', 'Explain my fault codes', "Is my car healthy?"],
+      };
+    },
+  },
+
+  // ─── A/C and climate ─────────────────────────────────────────────────────
+  {
+    id: 'ac_climate',
+    keywords: ['ac', 'a/c', 'air condition', 'aircon', 'cooling', 'cold air', 'climate', 'compressor', 'refrigerant', 'gas refill'],
+    respond: () => ({
+      text:
+        `A/C and climate system tips:\n\n` +
+        `❄️  If A/C blows warm:\n` +
+        `  • Low refrigerant (gas) is most common — needs a recharge\n` +
+        `  • Failed compressor clutch — listen for it engaging when A/C is on\n` +
+        `  • Blocked condenser (in front of radiator) — clean of debris\n` +
+        `  • Cabin filter clogged — restricts airflow\n\n` +
+        `💧  If A/C smells musty:\n` +
+        `  • Mould in evaporator — run A/C off + fan on for last 5 mins of trip to dry it\n` +
+        `  • Replace cabin filter every 15,000 – 25,000 km\n\n` +
+        `📋  Maintenance:\n` +
+        `  • Full A/C service every 2 years (vacuum, refrigerant, oil)\n` +
+        `  • Run A/C 10 minutes weekly even in winter — keeps seals lubricated\n` +
+        `  • If you hear hissing or see oily residue near A/C lines, get it inspected immediately`,
+      suggestions: ['When should I service?', 'Explain my fault codes'],
+    }),
+  },
+
+  // ─── Brakes ──────────────────────────────────────────────────────────────
+  {
+    id: 'brakes',
+    keywords: ['brake', 'braking', 'pad', 'rotor', 'disc', 'squeal', 'grinding', 'soft pedal', 'spongy', 'abs'],
+    respond: () => ({
+      text:
+        `Brake system guidance:\n\n` +
+        `🚨  Warning signs that need immediate attention:\n` +
+        `  • Squealing → pads worn close to the wear indicator (replace soon)\n` +
+        `  • Grinding → metal-on-metal, pads gone — STOP DRIVING\n` +
+        `  • Soft / spongy pedal → air in lines or fluid leak — check before driving\n` +
+        `  • Pulling to one side → uneven wear or sticky caliper\n` +
+        `  • Vibration through pedal → warped rotors\n\n` +
+        `📋  Service intervals:\n` +
+        `  • Brake pads: typically 30,000 – 60,000 km (depends on driving style)\n` +
+        `  • Rotors: replace or resurface every 2nd pad change\n` +
+        `  • Brake fluid: flush every 2 years (it absorbs water and degrades)\n\n` +
+        `💡  Habits that extend brake life:\n` +
+        `  • Anticipate stops — coast instead of brake-and-go\n` +
+        `  • Use engine braking on long descents\n` +
+        `  • Don't ride the brake pedal`,
+      suggestions: ['When should I service?', 'Explain my fault codes', "Is my car healthy?"],
+    }),
+  },
+
+  // ─── Tires ───────────────────────────────────────────────────────────────
+  {
+    id: 'tires',
+    keywords: ['tire', 'tyre', 'tread', 'pressure', 'psi', 'rotation', 'alignment', 'flat', 'puncture', 'wheel'],
+    respond: () => ({
+      text:
+        `Tire care fundamentals:\n\n` +
+        `📏  Pressure:\n` +
+        `  • Check monthly when cold (before driving)\n` +
+        `  • Use the placard inside driver's door, not the sidewall number\n` +
+        `  • Under-inflated = poor mileage + uneven wear + blowout risk\n` +
+        `  • Over-inflated = harsh ride + centre wear + reduced grip\n\n` +
+        `🔄  Rotation:\n` +
+        `  • Every 10,000 km — equalises wear front-to-rear\n` +
+        `  • Skipping rotation can halve your tire life\n\n` +
+        `📐  Alignment:\n` +
+        `  • Check yearly, or any time you hit a bad pothole/curb\n` +
+        `  • Symptoms: pulls to one side, off-centre steering wheel, uneven wear\n\n` +
+        `👀  Tread depth:\n` +
+        `  • Replace at 1.6 mm (legal min) — but 3 mm is safer in wet\n` +
+        `  • Coin test: insert a coin into the groove; if you see the rim, time to replace\n\n` +
+        `⚠️  Ageing:\n` +
+        `  • Even with good tread, replace tires older than 6 years (rubber hardens)\n` +
+        `  • DOT code on sidewall: last 4 digits = week/year of manufacture`,
+      suggestions: ['When should I service?', 'Fuel saving tips'],
+    }),
+  },
+
+  // ─── Cold start / hard starting ──────────────────────────────────────────
+  {
+    id: 'cold_start',
+    keywords: ['cold start', 'hard start', 'won\'t start', 'wont start', 'slow start', 'cranking', 'starting issue', 'morning start'],
+    respond: ({ vehicle }) => {
+      const isDiesel = (vehicle?.engineType || '').toLowerCase().includes('diesel');
+      return {
+        text:
+          `Hard starting troubleshooting:\n\n` +
+          `🔋  Battery first:\n` +
+          `  • If cranking is slow/sluggish → battery weak (check voltage when off, should be 12.4-12.7V)\n` +
+          `  • Clean corroded terminals\n` +
+          `  • Battery older than 4 years? Have it load-tested\n\n` +
+          (isDiesel
+            ? `⚡  Diesel-specific:\n` +
+              `  • Glow plugs are the #1 cause of hard cold starts\n` +
+              `  • Wait for the glow-plug light to go out before cranking\n` +
+              `  • Air in fuel lines (after a fuel filter change) — bleed before starting\n` +
+              `  • Low compression = white smoke + hard start when cold\n\n`
+            : `⚡  Petrol-specific:\n` +
+              `  • Worn spark plugs — check at 30,000 km intervals\n` +
+              `  • Failing fuel pump → no fuel pressure during cranking\n` +
+              `  • Faulty crank position sensor → intermittent no-start\n\n`) +
+          `🔧  Other common causes:\n` +
+          `  • Starter motor solenoid clicking but no crank\n` +
+          `  • Failing ignition switch\n` +
+          `  • Empty/contaminated fuel\n\n` +
+          `Run a fault code scan first — it usually points right to the cause.`,
+        suggestions: ['Explain my fault codes', 'Explain battery', 'When should I service?'],
+      };
+    },
+  },
+
   // ─── App help / what can you do ──────────────────────────────────────────
   {
     id: 'help',
@@ -405,10 +606,11 @@ export const INTENTS = [
         `  • Live OBD sensor readings (when connected)\n` +
         `  • Sensor education (RPM, coolant, engine load, battery, MAF)\n` +
         `  • Recurring issues across past inspections\n` +
-        `  • Service interval guidance\n` +
+        `  • Personalised maintenance schedule (km-based)\n` +
+        `  • Diesel / DPF / EGR / 1KD-specific care\n` +
+        `  • Brake, tire, A/C, and cold-start guidance\n` +
         `  • Fuel-saving tips\n` +
-        `  • Bluetooth/ELM327 connection help\n` +
-        `  • Symptom advice (overheating, etc.)\n\n` +
+        `  • Bluetooth/ELM327 connection help\n\n` +
         `Type a question or tap a suggestion below.`,
       suggestions: COMMON_SUGGESTIONS,
     }),

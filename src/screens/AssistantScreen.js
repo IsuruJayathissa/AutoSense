@@ -25,6 +25,7 @@ export default function AssistantScreen({ navigation }) {
   const [input, setInput] = useState('');
   const [thinking, setThinking] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
+  const [actions, setActions] = useState([]);
   const listRef = useRef(null);
 
   // Send the welcome message on mount
@@ -54,11 +55,13 @@ export default function AssistantScreen({ navigation }) {
     setInput('');
     setThinking(true);
     setSuggestions([]);
+    setActions([]);
 
     try {
       const reply = await AssistantService.processMessage(trimmed);
       setMessages((prev) => [...prev, { id: newId(), role: 'bot', text: reply.text }]);
       setSuggestions(reply.suggestions || []);
+      setActions(reply.actions || []);
     } catch (e) {
       setMessages((prev) => [...prev, { id: newId(), role: 'bot', text: `Sorry — something went wrong: ${e.message}` }]);
     } finally {
@@ -133,6 +136,29 @@ export default function AssistantScreen({ navigation }) {
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
             ListFooterComponent={thinking ? <ThinkingBubble /> : null}
           />
+
+          {/* Action chips — clickable, jump to a specific app screen */}
+          {actions.length > 0 && !thinking && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipsRow}
+            >
+              {actions.map((a) => (
+                <TouchableOpacity
+                  key={a.label}
+                  style={styles.actionChip}
+                  onPress={() => navigation.navigate(a.screen)}
+                  activeOpacity={0.8}
+                >
+                  {a.icon && (
+                    <Ionicons name={a.icon} size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+                  )}
+                  <Text style={styles.actionChipText}>{a.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
 
           {/* Quick suggestion chips */}
           {suggestions.length > 0 && !thinking && (
@@ -275,6 +301,15 @@ const styles = StyleSheet.create({
     borderRadius: 18, marginRight: 8,
   },
   chipText: { fontSize: 12, color: '#8B0000', fontWeight: '600' },
+
+  // Action chip — solid, navigates to a specific screen
+  actionChip: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#8B0000',
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 18, marginRight: 8,
+  },
+  actionChipText: { fontSize: 12, color: '#FFFFFF', fontWeight: '700' },
 
   // Input
   inputBar: {

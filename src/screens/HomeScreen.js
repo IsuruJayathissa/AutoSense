@@ -16,6 +16,7 @@ import { signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 import OBDService from '../services/OBDService';
+import MaintenanceService from '../services/MaintenanceService';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 60) / 2;
@@ -24,30 +25,58 @@ export default function HomeScreen({ navigation }) {
   const [vehicleData, setVehicleData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [obdConnected, setObdConnected] = useState(OBDService.isConnected);
+  const [maintenanceSummary, setMaintenanceSummary] = useState(null);
 
   useEffect(() => {
     loadVehicleData();
     const unsubscribe = OBDService.onConnectionChange(setObdConnected);
-    return unsubscribe;
-  }, []);
+    // Refresh maintenance summary every time the user returns to home
+    const refresh = navigation.addListener('focus', () => {
+      loadMaintenanceSummary();
+    });
+    return () => {
+      unsubscribe();
+      refresh();
+    };
+  }, [navigation]);
 
   const loadVehicleData = async () => {
     try {
       const userId = auth.currentUser.uid;
       const userVehicleDoc = await getDoc(doc(db, 'userVehicles', userId));
-      
+
       if (userVehicleDoc.exists()) {
         const vehicleId = userVehicleDoc.data().vehicleId;
         const vehicleDoc = await getDoc(doc(db, 'vehicles', vehicleId));
-        
+
         if (vehicleDoc.exists()) {
-          setVehicleData(vehicleDoc.data());
+          const vData = vehicleDoc.data();
+          setVehicleData(vData);
+          // Now that we know the engine type, load the maintenance summary
+          loadMaintenanceSummary(vData.engineType);
         }
       }
     } catch (error) {
       console.error('Error loading vehicle:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadMaintenanceSummary = async (engineType) => {
+    try {
+      const schedule = await MaintenanceService.getSchedule(engineType || vehicleData?.engineType || 'Diesel');
+      if (!schedule) return;
+      const overdue = schedule.items.filter(i => i.status === 'overdue');
+      const dueSoon = schedule.items.filter(i => i.status === 'due_soon');
+      setMaintenanceSummary({
+        currentMileage: schedule.currentMileage,
+        overdueCount: overdue.length,
+        dueSoonCount: dueSoon.length,
+        nextItem: schedule.items[0], // already sorted: most urgent first
+      });
+    } catch (e) {
+      console.warn('Maintenance summary load error:', e.message);
     }
   };
 
@@ -116,11 +145,11 @@ export default function HomeScreen({ navigation }) {
       screen: 'Analysis',
       color: '#8B0000',
     },
-    // ── NEW: Data Collection for AI model training ─────────────────────────
+    // ── Data Collection — record labelled OBD sessions ────────────────────
     {
       id: '7',
       icon: 'server-outline',
-      title: 'Collect Training Data',
+      title: 'Collect Session Data',
       screen: 'DataCollection',
       color: '#8B0000',
     },
@@ -129,6 +158,13 @@ export default function HomeScreen({ navigation }) {
       icon: 'chatbubbles-outline',
       title: 'AutoSense Assistant',
       screen: 'Assistant',
+      color: '#8B0000',
+    },
+    {
+      id: '11',
+      icon: 'construct-outline',
+      title: 'Maintenance Schedule',
+      screen: 'MaintenanceSchedule',
       color: '#8B0000',
     },
     {
@@ -296,11 +332,17 @@ export default function HomeScreen({ navigation }) {
                     <Ionicons name={action.icon} size={24} color={action.color} />
                   </View>
                   <Text style={styles.secondaryTitle}>{action.title}</Text>
-                  {/* AI badge for Data Collection */}
-                  {action.screen === 'DataCollection' && (
-                    <View style={styles.aiBadge}>
-                      <Text style={styles.aiBadgeText}>AI</Text>
-                    </View>
+                  {/* Maintenance badge — overdue / due soon count */}
+                  {action.screen === 'MaintenanceSchedule' && maintenanceSummary && (
+                    maintenanceSummary.overdueCount > 0 ? (
+                      <View style={[styles.aiBadge, { backgroundColor: '#EF4444' }]}>
+                        <Text style={styles.aiBadgeText}>{maintenanceSummary.overdueCount} OVERDUE</Text>
+                      </View>
+                    ) : maintenanceSummary.dueSoonCount > 0 ? (
+                      <View style={[styles.aiBadge, { backgroundColor: '#F59E0B' }]}>
+                        <Text style={styles.aiBadgeText}>{maintenanceSummary.dueSoonCount} DUE SOON</Text>
+                      </View>
+                    ) : null
                   )}
                   <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
                 </View>
@@ -472,6 +514,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
   },
   noVehicleText: { marginTop: 12, color: '#6B7280', fontSize: 14 },
+
   sectionHeader: {
     flexDirection: 'row', alignItems: 'center',
     justifyContent: 'space-between', marginBottom: 16,
@@ -514,7 +557,7 @@ const styles = StyleSheet.create({
   },
   secondaryTitle: { flex: 1, fontSize: 16, fontWeight: '600', color: '#1F2937' },
 
-  // AI badge on the Data Collection row
+  // Pill badge — used by Maintenance overdue / due-soon counts
   aiBadge: {
     backgroundColor: '#8B0000', paddingHorizontal: 8,
     paddingVertical: 3, borderRadius: 6, marginRight: 8,

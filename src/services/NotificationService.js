@@ -28,7 +28,7 @@ class NotificationService {
     const confText = confidence ? ` (${confidence}% confidence)` : '';
     this._showAlert(
       '⚠️ Critical Engine Alert',
-      `AutoSense AI detected a critical anomaly${confText}. Inspect your vehicle immediately.`
+      `AutoSense detected a critical engine condition${confText}. Inspect your vehicle immediately.`
     );
   }
 
@@ -36,7 +36,7 @@ class NotificationService {
     const confText = confidence ? ` (${confidence}% confidence)` : '';
     this._showAlert(
       '🟡 Engine Warning',
-      `AutoSense AI detected a potential issue${confText}. Monitor your vehicle closely.`
+      `AutoSense detected a potential engine issue${confText}. Monitor your vehicle closely.`
     );
   }
 

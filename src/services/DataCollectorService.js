@@ -4,7 +4,7 @@ import { collection, addDoc, doc, setDoc, serverTimestamp } from 'firebase/fires
 // ─────────────────────────────────────────────
 //  DataCollectorService
 //  Records labeled OBD sensor sessions for
-//  training the engine health TensorFlow model
+//  reviewing past driving sessions and engine condition history
 // ─────────────────────────────────────────────
 
 class DataCollectorService {

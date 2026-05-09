@@ -21,6 +21,7 @@ import InspectionScreen from '../screens/InspectionScreen';
 import InspectionDetailScreen from '../screens/InspectionDetailScreen';
 import AnalysisScreen from '../screens/AnalysisScreen';
 import AssistantScreen from '../screens/AssistantScreen';
+import MaintenanceScheduleScreen from '../screens/MaintenanceScheduleScreen';
 
 const Stack = createStackNavigator();
 
@@ -57,6 +58,7 @@ export default function AppNavigator() {
             <Stack.Screen name="InspectionDetail" component={InspectionDetailScreen} />
             <Stack.Screen name="Analysis" component={AnalysisScreen} />
             <Stack.Screen name="Assistant" component={AssistantScreen} />
+            <Stack.Screen name="MaintenanceSchedule" component={MaintenanceScheduleScreen} />
           </>
         ) : (
           <Stack.Screen name="VehicleAuth" component={VehicleAuthScreen} />
