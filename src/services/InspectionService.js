@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   setDoc,
+  deleteDoc,
   getDocs,
   query,
   where,
@@ -85,6 +86,18 @@ class InspectionService {
       return tb - ta;
     });
     return docs;
+  }
+
+  // Delete every inspection belonging to the signed-in user.
+  // Returns the number of records removed.
+  async clearAllInspections() {
+    const userId = auth.currentUser?.uid;
+    if (!userId) throw new Error('Not signed in');
+
+    const q = query(collection(db, COLLECTION), where('userId', '==', userId));
+    const snap = await getDocs(q);
+    await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, COLLECTION, d.id))));
+    return snap.docs.length;
   }
 }
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList,
   TouchableOpacity, StatusBar,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,6 +25,7 @@ export default function HistoryScreen({ navigation }) {
   const [dtcHistory,   setDtcHistory]   = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [refreshing,   setRefreshing]   = useState(false);
+  const [clearing,     setClearing]     = useState(false);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -58,6 +59,47 @@ export default function HistoryScreen({ navigation }) {
     } catch (e) {
       setDtcHistory([]);
     }
+  };
+
+  // ── Clear active tab's history (with confirmation) ───────────────────────
+  const handleClearAll = () => {
+    const isInspections = activeTab === 0;
+    const count = isInspections ? inspections.length : dtcHistory.length;
+
+    if (count === 0) {
+      Alert.alert('Nothing to Clear', 'This list is already empty.');
+      return;
+    }
+
+    const label = isInspections ? 'inspection record(s)' : 'DTC scan(s)';
+    Alert.alert(
+      'Clear History',
+      `This will permanently delete all ${count} ${label}. This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear All',
+          style: 'destructive',
+          onPress: async () => {
+            setClearing(true);
+            try {
+              if (isInspections) {
+                await InspectionService.clearAllInspections();
+                setInspections([]);
+              } else {
+                await AsyncStorage.removeItem(DTC_HIST_KEY);
+                setDtcHistory([]);
+              }
+              Alert.alert('Cleared', 'History has been cleared.');
+            } catch (err) {
+              Alert.alert('Error', err?.message || 'Could not clear history.');
+            } finally {
+              setClearing(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   // ── Render: compact inspection row ───────────────────────────────────────
@@ -172,7 +214,18 @@ export default function HistoryScreen({ navigation }) {
             <Ionicons name="arrow-back" size={24} color="#1F2937" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>History</Text>
-          <View style={{ width: 44 }} />
+          <TouchableOpacity
+            onPress={handleClearAll}
+            style={styles.clearBtn}
+            disabled={clearing || loading}
+            activeOpacity={0.7}
+          >
+            {clearing ? (
+              <ActivityIndicator size="small" color="#8B0000" />
+            ) : (
+              <Ionicons name="trash-outline" size={20} color="#8B0000" />
+            )}
+          </TouchableOpacity>
         </View>
 
         {/* Tab bar */}
@@ -272,6 +325,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
   },
   backBtn:     { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
+  clearBtn:    { width: 44, height: 44, borderRadius: 22, backgroundColor: '#FEE2E2', justifyContent: 'center', alignItems: 'center' },
   headerTitle: { fontSize: 20, fontWeight: '700', color: '#1F2937' },
 
   tabBar: { flexDirection: 'row', backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },

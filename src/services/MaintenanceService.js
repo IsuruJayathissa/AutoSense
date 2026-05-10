@@ -177,6 +177,27 @@ class MaintenanceService {
     });
   }
 
+  // Wipe every item's service history. Each item's lastServiceKm is reset to
+  // the current mileage so everything reads as "just serviced" (status: ok).
+  async resetServiceHistory() {
+    const userId = auth.currentUser?.uid;
+    if (!userId) throw new Error('Not signed in');
+    const ref = doc(db, COLLECTION, userId);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return 0;
+    const data = snap.data();
+    const km = data.currentMileage || 0;
+    const items = {};
+    Object.keys(MAINTENANCE_ITEMS).forEach((key) => {
+      items[key] = { lastServiceKm: km, lastServiceDate: null };
+    });
+    await updateDoc(ref, {
+      items,
+      lastUpdated: serverTimestamp(),
+    });
+    return Object.keys(items).length;
+  }
+
   // Convenience: most pressing item to surface on the home page
   async getNextDueItem(engineType) {
     const schedule = await this.getSchedule(engineType);

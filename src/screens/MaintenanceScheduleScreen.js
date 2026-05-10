@@ -23,6 +23,7 @@ export default function MaintenanceScheduleScreen({ navigation }) {
   const [engineType, setEngineType] = useState('Diesel');
   const [mileageModalOpen, setMileageModalOpen] = useState(false);
   const [mileageInput, setMileageInput] = useState('');
+  const [clearing, setClearing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -76,6 +77,37 @@ export default function MaintenanceScheduleScreen({ navigation }) {
     load();
   };
 
+  // ── Clear all service history (with confirmation) ─────────────────────
+  const handleClearAll = () => {
+    if (!schedule || !schedule.items?.length) {
+      Alert.alert('Nothing to Clear', 'No maintenance records to reset.');
+      return;
+    }
+    Alert.alert(
+      'Clear Service History',
+      `This will reset every item's last-serviced record to the current mileage (${(schedule.currentMileage || 0).toLocaleString()} km). Everything will read as "just serviced". Continue?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear All',
+          style: 'destructive',
+          onPress: async () => {
+            setClearing(true);
+            try {
+              await MaintenanceService.resetServiceHistory();
+              await load();
+              Alert.alert('Cleared', 'Service history has been reset.');
+            } catch (err) {
+              Alert.alert('Error', err?.message || 'Could not clear service history.');
+            } finally {
+              setClearing(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const onMarkServiced = (item) => {
     Alert.alert(
       `Mark Serviced: ${item.name}`,
@@ -118,7 +150,18 @@ export default function MaintenanceScheduleScreen({ navigation }) {
             <Ionicons name="arrow-back" size={24} color="#1F2937" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Maintenance Schedule</Text>
-          <View style={{ width: 40 }} />
+          <TouchableOpacity
+            onPress={handleClearAll}
+            style={styles.clearBtn}
+            disabled={clearing || loading}
+            activeOpacity={0.7}
+          >
+            {clearing ? (
+              <ActivityIndicator size="small" color="#8B0000" />
+            ) : (
+              <Ionicons name="trash-outline" size={20} color="#8B0000" />
+            )}
+          </TouchableOpacity>
         </View>
 
         <ScrollView
@@ -128,67 +171,90 @@ export default function MaintenanceScheduleScreen({ navigation }) {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#8B0000" />
           }
         >
-          {/* Mileage card */}
-          <View style={styles.mileageCard}>
-            <LinearGradient
-              colors={['#8B0000', '#A00000']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.mileageCardBorder}
-            />
-            <View style={styles.mileageRow}>
-              <View style={styles.mileageIconCircle}>
-                <Ionicons name="speedometer" size={28} color="#8B0000" />
+          {/* Mileage hero card */}
+          <LinearGradient
+            colors={['#1F2937', '#0F172A']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.mileageCard}
+          >
+            <View style={styles.mileageTopRow}>
+              <View style={styles.mileageBadge}>
+                <Ionicons name="speedometer" size={14} color="#FCA5A5" />
+                <Text style={styles.mileageBadgeText}>Current Mileage</Text>
               </View>
-              <View style={styles.mileageInfo}>
-                <Text style={styles.mileageLabel}>Current Mileage</Text>
-                <Text style={styles.mileageValue}>
-                  {(schedule?.currentMileage || 0).toLocaleString()} <Text style={styles.mileageUnit}>km</Text>
-                </Text>
-                <Text style={styles.mileageNote}>
-                  Auto-updates from inspection odometer reading
-                </Text>
+              <View style={styles.mileageEnginePill}>
+                <Ionicons name="cog" size={11} color="rgba(255,255,255,0.8)" />
+                <Text style={styles.mileageEnginePillText}>{engineType}</Text>
               </View>
             </View>
+
+            <View style={styles.mileageMain}>
+              <Text style={styles.mileageValue}>
+                {(schedule?.currentMileage || 0).toLocaleString()}
+              </Text>
+              <Text style={styles.mileageUnit}>km</Text>
+            </View>
+
+            <Text style={styles.mileageNote}>
+              Auto-updates from inspection odometer reading
+            </Text>
+
             <TouchableOpacity
               style={styles.updateMileageBtn}
               onPress={() => {
                 setMileageInput(String(schedule?.currentMileage || ''));
                 setMileageModalOpen(true);
               }}
+              activeOpacity={0.8}
             >
-              <Ionicons name="create-outline" size={18} color="#8B0000" />
-              <Text style={styles.updateMileageBtnText}>Update Manually</Text>
+              <Ionicons name="create-outline" size={16} color="#FFFFFF" />
+              <Text style={styles.updateMileageBtnText}>Update Mileage</Text>
             </TouchableOpacity>
-          </View>
+          </LinearGradient>
 
-          {/* Summary banners */}
-          {(overdueCount > 0 || dueSoonCount > 0) && (
-            <View style={styles.summaryRow}>
-              {overdueCount > 0 && (
-                <View style={[styles.summaryPill, { backgroundColor: STATUS_STYLES.overdue.bg }]}>
-                  <Ionicons name="alert-circle" size={16} color={STATUS_STYLES.overdue.color} />
-                  <Text style={[styles.summaryPillText, { color: STATUS_STYLES.overdue.color }]}>
-                    {overdueCount} Overdue
-                  </Text>
-                </View>
-              )}
-              {dueSoonCount > 0 && (
-                <View style={[styles.summaryPill, { backgroundColor: STATUS_STYLES.due_soon.bg }]}>
-                  <Ionicons name="time" size={16} color={STATUS_STYLES.due_soon.color} />
-                  <Text style={[styles.summaryPillText, { color: STATUS_STYLES.due_soon.color }]}>
-                    {dueSoonCount} Due Soon
-                  </Text>
-                </View>
-              )}
+          {/* Summary stats — 3 columns */}
+          <View style={styles.statsRow}>
+            <View style={[styles.statCard, { borderColor: '#FECACA' }]}>
+              <View style={[styles.statIconChip, { backgroundColor: STATUS_STYLES.overdue.bg }]}>
+                <Ionicons name="alert-circle" size={16} color={STATUS_STYLES.overdue.color} />
+              </View>
+              <Text style={[styles.statValue, { color: STATUS_STYLES.overdue.color }]}>
+                {overdueCount}
+              </Text>
+              <Text style={styles.statLabel}>Overdue</Text>
             </View>
-          )}
+            <View style={[styles.statCard, { borderColor: '#FDE68A' }]}>
+              <View style={[styles.statIconChip, { backgroundColor: STATUS_STYLES.due_soon.bg }]}>
+                <Ionicons name="time" size={16} color={STATUS_STYLES.due_soon.color} />
+              </View>
+              <Text style={[styles.statValue, { color: STATUS_STYLES.due_soon.color }]}>
+                {dueSoonCount}
+              </Text>
+              <Text style={styles.statLabel}>Due Soon</Text>
+            </View>
+            <View style={[styles.statCard, { borderColor: '#A7F3D0' }]}>
+              <View style={[styles.statIconChip, { backgroundColor: STATUS_STYLES.ok.bg }]}>
+                <Ionicons name="checkmark-circle" size={16} color={STATUS_STYLES.ok.color} />
+              </View>
+              <Text style={[styles.statValue, { color: STATUS_STYLES.ok.color }]}>
+                {(schedule?.items.length || 0) - overdueCount - dueSoonCount}
+              </Text>
+              <Text style={styles.statLabel}>Up to Date</Text>
+            </View>
+          </View>
 
           {/* Items list */}
           <View style={styles.sectionHeader}>
-            <Ionicons name="construct" size={20} color="#1F2937" />
-            <Text style={styles.sectionTitle}>Service Items</Text>
-            <Text style={styles.sectionNote}>{engineType}</Text>
+            <View style={styles.sectionTitleRow}>
+              <View style={styles.sectionIconChip}>
+                <Ionicons name="construct" size={16} color="#8B0000" />
+              </View>
+              <Text style={styles.sectionTitle}>Service Items</Text>
+            </View>
+            <View style={styles.sectionCountPill}>
+              <Text style={styles.sectionCountText}>{schedule?.items.length || 0}</Text>
+            </View>
           </View>
 
           {schedule?.items.map((item) => {
@@ -198,10 +264,12 @@ export default function MaintenanceScheduleScreen({ navigation }) {
               Math.max(0, ((item.intervalKm - item.kmUntilDue) / item.intervalKm) * 100)
             );
             return (
-              <View key={item.key} style={[styles.itemCard, { borderLeftColor: sty.color }]}>
+              <View key={item.key} style={styles.itemCard}>
+                <View style={[styles.itemAccentBar, { backgroundColor: sty.color }]} />
+
                 <View style={styles.itemHeader}>
-                  <View style={[styles.itemIconCircle, { backgroundColor: sty.color + '20' }]}>
-                    <Ionicons name={item.icon} size={22} color={sty.color} />
+                  <View style={[styles.itemIconCircle, { backgroundColor: sty.color + '15' }]}>
+                    <Ionicons name={item.icon} size={24} color={sty.color} />
                   </View>
                   <View style={styles.itemInfo}>
                     <Text style={styles.itemName}>{item.name}</Text>
@@ -210,38 +278,49 @@ export default function MaintenanceScheduleScreen({ navigation }) {
                     </Text>
                   </View>
                   <View style={[styles.itemBadge, { backgroundColor: sty.bg }]}>
+                    <View style={[styles.itemBadgeDot, { backgroundColor: sty.color }]} />
                     <Text style={[styles.itemBadgeText, { color: sty.color }]}>
                       {sty.label}
                     </Text>
                   </View>
                 </View>
 
-                <View style={styles.itemProgressBar}>
-                  <View style={[
-                    styles.itemProgressFill,
-                    { width: `${progressPct}%`, backgroundColor: sty.color },
-                  ]} />
+                <View style={styles.itemProgressRow}>
+                  <View style={styles.itemProgressBar}>
+                    <View style={[
+                      styles.itemProgressFill,
+                      { width: `${progressPct}%`, backgroundColor: sty.color },
+                    ]} />
+                  </View>
+                  <Text style={[styles.itemProgressText, { color: sty.color }]}>
+                    {Math.round(progressPct)}%
+                  </Text>
                 </View>
 
                 <View style={styles.itemDetails}>
-                  <View>
+                  <View style={styles.itemDetailCol}>
                     <Text style={styles.itemDetailLabel}>Last Service</Text>
                     <Text style={styles.itemDetailValue}>
-                      {item.lastServiceKm.toLocaleString()} km
+                      {item.lastServiceKm.toLocaleString()}
+                      <Text style={styles.itemDetailUnit}> km</Text>
                     </Text>
                   </View>
-                  <View>
+                  <View style={styles.itemDetailDivider} />
+                  <View style={styles.itemDetailCol}>
                     <Text style={styles.itemDetailLabel}>Next Due</Text>
                     <Text style={styles.itemDetailValue}>
-                      {item.nextDueKm.toLocaleString()} km
+                      {item.nextDueKm.toLocaleString()}
+                      <Text style={styles.itemDetailUnit}> km</Text>
                     </Text>
                   </View>
-                  <View>
+                  <View style={styles.itemDetailDivider} />
+                  <View style={styles.itemDetailCol}>
                     <Text style={styles.itemDetailLabel}>
                       {item.kmUntilDue >= 0 ? 'Until Due' : 'Overdue By'}
                     </Text>
                     <Text style={[styles.itemDetailValue, { color: sty.color }]}>
-                      {Math.abs(item.kmUntilDue).toLocaleString()} km
+                      {Math.abs(item.kmUntilDue).toLocaleString()}
+                      <Text style={[styles.itemDetailUnit, { color: sty.color }]}> km</Text>
                     </Text>
                   </View>
                 </View>
@@ -249,9 +328,17 @@ export default function MaintenanceScheduleScreen({ navigation }) {
                 <TouchableOpacity
                   style={styles.markServicedBtn}
                   onPress={() => onMarkServiced(item)}
+                  activeOpacity={0.85}
                 >
-                  <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
-                  <Text style={styles.markServicedBtnText}>Mark as Serviced</Text>
+                  <LinearGradient
+                    colors={['#A00000', '#8B0000']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.markServicedGradient}
+                  >
+                    <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
+                    <Text style={styles.markServicedBtnText}>Mark as Serviced</Text>
+                  </LinearGradient>
                 </TouchableOpacity>
               </View>
             );
@@ -270,30 +357,46 @@ export default function MaintenanceScheduleScreen({ navigation }) {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalIconWrap}>
+              <Ionicons name="speedometer" size={26} color="#8B0000" />
+            </View>
             <Text style={styles.modalTitle}>Update Mileage</Text>
             <Text style={styles.modalSub}>
               Enter the current odometer reading. This will refresh all service due dates.
             </Text>
-            <TextInput
-              style={styles.modalInput}
-              value={mileageInput}
-              onChangeText={setMileageInput}
-              placeholder="e.g. 145320"
-              placeholderTextColor="#9CA3AF"
-              keyboardType="numeric"
-            />
+            <View style={styles.modalInputWrap}>
+              <Text style={styles.modalInputPrefix}>km</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={mileageInput}
+                onChangeText={setMileageInput}
+                placeholder="e.g. 145320"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="numeric"
+              />
+            </View>
             <View style={styles.modalButtons}>
               <TouchableOpacity
                 style={[styles.modalBtn, styles.modalBtnCancel]}
                 onPress={() => setMileageModalOpen(false)}
+                activeOpacity={0.85}
               >
                 <Text style={styles.modalBtnCancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalBtn, styles.modalBtnPrimary]}
                 onPress={onUpdateMileage}
+                activeOpacity={0.85}
+                style={styles.modalBtn}
               >
-                <Text style={styles.modalBtnPrimaryText}>Update</Text>
+                <LinearGradient
+                  colors={['#A00000', '#8B0000']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.modalBtnPrimary}
+                >
+                  <Text style={styles.modalBtnPrimaryText}>Update</Text>
+                </LinearGradient>
               </TouchableOpacity>
             </View>
           </View>
@@ -304,142 +407,276 @@ export default function MaintenanceScheduleScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
+  container: { flex: 1, backgroundColor: '#F7F8FA' },
   safeArea: { flex: 1 },
-  loadingContainer: { justifyContent: 'center', alignItems: 'center' },
-  loadingText: { color: '#6B7280', marginTop: 12, fontSize: 14 },
+  loadingContainer: { justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' },
+  loadingText: { color: '#6B7280', marginTop: 12, fontSize: 14, fontWeight: '500' },
 
   header: {
     backgroundColor: '#FFFFFF',
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingVertical: 16,
-    borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
+    paddingHorizontal: 20, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: '#F0F0F2',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
   },
   backButton: {
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: '#F3F4F6',
     justifyContent: 'center', alignItems: 'center',
   },
-  headerTitle: { fontSize: 20, fontWeight: '700', color: '#1F2937' },
-  content: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
-
-  // Mileage card
-  mileageCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16, padding: 16,
-    borderWidth: 1, borderColor: '#E5E7EB',
-    position: 'relative', overflow: 'hidden',
-    marginBottom: 16,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
-  },
-  mileageCardBorder: {
-    position: 'absolute', top: 0, left: 0, right: 0, height: 4,
-  },
-  mileageRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 6 },
-  mileageIconCircle: {
-    width: 56, height: 56, borderRadius: 28,
+  clearBtn: {
+    width: 40, height: 40, borderRadius: 20,
     backgroundColor: '#FEE2E2',
     justifyContent: 'center', alignItems: 'center',
   },
-  mileageInfo: { flex: 1 },
-  mileageLabel: { fontSize: 12, color: '#9CA3AF', marginBottom: 2 },
-  mileageValue: { fontSize: 28, fontWeight: '800', color: '#1F2937' },
-  mileageUnit: { fontSize: 16, fontWeight: '600', color: '#6B7280' },
-  mileageNote: { fontSize: 11, color: '#9CA3AF', marginTop: 4, fontStyle: 'italic' },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#1F2937', letterSpacing: -0.3 },
+  content: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
+
+  // ── Mileage hero card ─────────────────────────────────────────────────
+  mileageCard: {
+    borderRadius: 22, padding: 20,
+    marginBottom: 16,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2, shadowRadius: 14, elevation: 6,
+  },
+  mileageTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  mileageBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 10, paddingVertical: 5,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 14,
+  },
+  mileageBadgeText: { color: '#FCA5A5', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+  mileageEnginePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 5,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 14,
+  },
+  mileageEnginePillText: { color: 'rgba(255,255,255,0.85)', fontSize: 11, fontWeight: '700' },
+
+  mileageMain: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+  },
+  mileageValue: {
+    fontSize: 48,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -1.5,
+    fontVariant: ['tabular-nums'],
+  },
+  mileageUnit: { fontSize: 18, fontWeight: '700', color: 'rgba(255,255,255,0.6)' },
+  mileageNote: {
+    fontSize: 11, color: 'rgba(255,255,255,0.55)',
+    marginTop: 6, fontWeight: '500',
+  },
 
   updateMileageBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12, paddingVertical: 8,
-    backgroundColor: '#FEE2E2', borderRadius: 8,
-    marginTop: 12,
-  },
-  updateMileageBtnText: { color: '#8B0000', fontSize: 12, fontWeight: '700' },
-
-  // Summary
-  summaryRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  summaryPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 12, paddingVertical: 6,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, marginTop: 16,
+    paddingVertical: 11, paddingHorizontal: 16,
+    backgroundColor: 'rgba(255,255,255,0.12)',
     borderRadius: 12,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
   },
-  summaryPillText: { fontSize: 13, fontWeight: '700' },
+  updateMileageBtnText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
 
-  // Section header
+  // ── Summary stats row (3 columns) ─────────────────────────────────────
+  statsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 18,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 14, paddingHorizontal: 8,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04, shadowRadius: 3, elevation: 1,
+  },
+  statIconChip: {
+    width: 32, height: 32, borderRadius: 16,
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 6,
+  },
+  statValue: {
+    fontSize: 22, fontWeight: '900',
+    fontVariant: ['tabular-nums'],
+  },
+  statLabel: {
+    fontSize: 11, color: '#6B7280', fontWeight: '600',
+    marginTop: 2,
+  },
+
+  // ── Section header ────────────────────────────────────────────────────
   sectionHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 12, marginTop: 4,
   },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#1F2937', flex: 1 },
-  sectionNote: { fontSize: 12, color: '#9CA3AF' },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  sectionIconChip: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  sectionTitle: { fontSize: 16, fontWeight: '800', color: '#1F2937', letterSpacing: -0.2 },
+  sectionCountPill: {
+    minWidth: 28, height: 22, paddingHorizontal: 8,
+    borderRadius: 11,
+    backgroundColor: '#1F2937',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  sectionCountText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
 
-  // Item card
+  // ── Item card ─────────────────────────────────────────────────────────
   itemCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 14, padding: 14,
+    borderRadius: 18, padding: 16,
     marginBottom: 12,
-    borderWidth: 1, borderColor: '#E5E7EB',
-    borderLeftWidth: 4,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04, shadowRadius: 2, elevation: 1,
+    borderWidth: 1, borderColor: '#F0F0F2',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+  },
+  itemAccentBar: {
+    position: 'absolute',
+    left: 0, top: 0, bottom: 0,
+    width: 4,
   },
   itemHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   itemIconCircle: {
-    width: 44, height: 44, borderRadius: 22,
+    width: 48, height: 48, borderRadius: 14,
     justifyContent: 'center', alignItems: 'center',
   },
   itemInfo: { flex: 1 },
-  itemName: { fontSize: 15, fontWeight: '700', color: '#1F2937' },
-  itemInterval: { fontSize: 12, color: '#9CA3AF', marginTop: 2 },
-  itemBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-  itemBadgeText: { fontSize: 11, fontWeight: '700' },
-
-  itemProgressBar: {
-    height: 6, backgroundColor: '#F3F4F6',
-    borderRadius: 3, marginTop: 12, overflow: 'hidden',
+  itemName: { fontSize: 15, fontWeight: '800', color: '#1F2937', letterSpacing: -0.2 },
+  itemInterval: { fontSize: 12, color: '#9CA3AF', marginTop: 2, fontWeight: '500' },
+  itemBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 9, paddingVertical: 5, borderRadius: 10,
   },
-  itemProgressFill: { height: '100%', borderRadius: 3 },
+  itemBadgeDot: { width: 6, height: 6, borderRadius: 3 },
+  itemBadgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.4 },
+
+  itemProgressRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginTop: 14,
+  },
+  itemProgressBar: {
+    flex: 1,
+    height: 7, backgroundColor: '#F3F4F6',
+    borderRadius: 4, overflow: 'hidden',
+  },
+  itemProgressFill: { height: '100%', borderRadius: 4 },
+  itemProgressText: {
+    fontSize: 11, fontWeight: '800',
+    minWidth: 36, textAlign: 'right',
+    fontVariant: ['tabular-nums'],
+  },
 
   itemDetails: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    marginTop: 12, paddingTop: 12,
+    flexDirection: 'row',
+    marginTop: 14, paddingTop: 12,
     borderTopWidth: 1, borderTopColor: '#F3F4F6',
   },
-  itemDetailLabel: { fontSize: 10, color: '#9CA3AF', marginBottom: 2 },
-  itemDetailValue: { fontSize: 13, fontWeight: '700', color: '#1F2937' },
+  itemDetailCol: { flex: 1, alignItems: 'center' },
+  itemDetailDivider: { width: 1, backgroundColor: '#F0F0F2' },
+  itemDetailLabel: {
+    fontSize: 10, color: '#9CA3AF', marginBottom: 4,
+    fontWeight: '600', letterSpacing: 0.3, textTransform: 'uppercase',
+  },
+  itemDetailValue: {
+    fontSize: 14, fontWeight: '800', color: '#1F2937',
+    fontVariant: ['tabular-nums'],
+  },
+  itemDetailUnit: { fontSize: 11, fontWeight: '600', color: '#9CA3AF' },
 
   markServicedBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, marginTop: 12,
-    backgroundColor: '#8B0000', paddingVertical: 10, borderRadius: 10,
+    marginTop: 14,
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#8B0000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25, shadowRadius: 6, elevation: 3,
   },
-  markServicedBtnText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+  markServicedGradient: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 12,
+  },
+  markServicedBtnText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800', letterSpacing: 0.2 },
 
-  // Modal
+  // ── Modal ─────────────────────────────────────────────────────────────
   modalOverlay: {
     flex: 1, justifyContent: 'flex-end',
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   modalCard: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    padding: 20, paddingBottom: 36,
+    borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    padding: 24, paddingBottom: 40,
+    alignItems: 'center',
   },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#1F2937', marginBottom: 6 },
-  modalSub: { fontSize: 13, color: '#6B7280', marginBottom: 16 },
+  modalHandle: {
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: '#E5E7EB',
+    marginBottom: 16,
+  },
+  modalIconWrap: {
+    width: 56, height: 56, borderRadius: 16,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 14,
+  },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: '#1F2937', marginBottom: 6, letterSpacing: -0.3 },
+  modalSub: { fontSize: 13, color: '#6B7280', marginBottom: 18, textAlign: 'center', lineHeight: 18 },
+  modalInputWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    width: '100%',
+    borderWidth: 1.5, borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingLeft: 14,
+    marginBottom: 18,
+    backgroundColor: '#F9FAFB',
+  },
+  modalInputPrefix: {
+    fontSize: 14, fontWeight: '700', color: '#8B0000',
+    marginRight: 10, letterSpacing: 0.3,
+  },
   modalInput: {
-    borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 12,
-    fontSize: 16, color: '#1F2937', marginBottom: 16,
+    flex: 1, paddingVertical: 14, paddingRight: 14,
+    fontSize: 17, color: '#1F2937', fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
-  modalButtons: { flexDirection: 'row', gap: 10 },
+  modalButtons: { flexDirection: 'row', gap: 10, width: '100%' },
   modalBtn: {
-    flex: 1, paddingVertical: 12, borderRadius: 10,
+    flex: 1, borderRadius: 12,
+    overflow: 'hidden',
+  },
+  modalBtnCancel: {
+    backgroundColor: '#F3F4F6',
+    paddingVertical: 14,
     justifyContent: 'center', alignItems: 'center',
   },
-  modalBtnCancel: { backgroundColor: '#F3F4F6' },
   modalBtnCancelText: { color: '#6B7280', fontSize: 14, fontWeight: '700' },
-  modalBtnPrimary: { backgroundColor: '#8B0000' },
-  modalBtnPrimaryText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  modalBtnPrimary: {
+    paddingVertical: 14,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  modalBtnPrimaryText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800', letterSpacing: 0.3 },
 });

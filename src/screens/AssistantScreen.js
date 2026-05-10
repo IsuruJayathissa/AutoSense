@@ -8,7 +8,6 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
   StatusBar,
   ScrollView,
 } from 'react-native';
@@ -73,20 +72,25 @@ export default function AssistantScreen({ navigation }) {
     if (item.role === 'user') {
       return (
         <View style={styles.userRow}>
-          <View style={styles.userBubble}>
+          <LinearGradient
+            colors={['#8B0000', '#A00000']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.userBubble}
+          >
             <Text style={styles.userText}>{item.text}</Text>
-          </View>
+          </LinearGradient>
         </View>
       );
     }
     return (
       <View style={styles.botRow}>
-        <View style={styles.botAvatar}>
+        <View style={styles.botAvatarRing}>
           <LinearGradient
             colors={['#8B0000', '#A00000']}
             style={styles.botAvatarInner}
           >
-            <Ionicons name="car-sport" size={16} color="#FFFFFF" />
+            <Ionicons name="sparkles" size={14} color="#FFFFFF" />
           </LinearGradient>
         </View>
         <View style={styles.botBubble}>
@@ -106,16 +110,23 @@ export default function AssistantScreen({ navigation }) {
             <Ionicons name="arrow-back" size={22} color="#1F2937" />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
-            <View style={styles.headerAvatar}>
-              <LinearGradient colors={['#8B0000', '#A00000']} style={styles.headerAvatarInner}>
-                <Ionicons name="chatbubbles" size={16} color="#FFFFFF" />
+            <View style={styles.headerAvatarRing}>
+              <LinearGradient
+                colors={['#8B0000', '#A00000']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.headerAvatarInner}
+              >
+                <Ionicons name="sparkles" size={18} color="#FFFFFF" />
               </LinearGradient>
             </View>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.headerTitle}>AutoSense Assistant</Text>
               <View style={styles.headerStatus}>
-                <View style={styles.headerDot} />
-                <Text style={styles.headerStatusText}>Online · Vehicle context enabled</Text>
+                <View style={styles.headerDotPulse}>
+                  <View style={styles.headerDot} />
+                </View>
+                <Text style={styles.headerStatusText}>AI · Vehicle context enabled</Text>
               </View>
             </View>
           </View>
@@ -182,24 +193,39 @@ export default function AssistantScreen({ navigation }) {
 
           {/* Input bar */}
           <View style={styles.inputBar}>
-            <TextInput
-              style={styles.input}
-              value={input}
-              onChangeText={setInput}
-              placeholder="Ask about your car…"
-              placeholderTextColor="#9CA3AF"
-              onSubmitEditing={() => send()}
-              returnKeyType="send"
-              editable={!thinking}
-              multiline
-            />
+            <View style={styles.inputWrap}>
+              <TextInput
+                style={styles.input}
+                value={input}
+                onChangeText={setInput}
+                placeholder="Ask about your car…"
+                placeholderTextColor="#9CA3AF"
+                onSubmitEditing={() => send()}
+                returnKeyType="send"
+                editable={!thinking}
+                multiline
+              />
+            </View>
             <TouchableOpacity
-              style={[styles.sendBtn, (!input.trim() || thinking) && styles.sendBtnDisabled]}
               onPress={() => send()}
               disabled={!input.trim() || thinking}
-              activeOpacity={0.8}
+              activeOpacity={0.85}
+              style={styles.sendBtnWrap}
             >
-              <Ionicons name="send" size={18} color="#FFFFFF" />
+              {(!input.trim() || thinking) ? (
+                <View style={[styles.sendBtn, styles.sendBtnDisabled]}>
+                  <Ionicons name="send" size={18} color="#FFFFFF" />
+                </View>
+              ) : (
+                <LinearGradient
+                  colors={['#A00000', '#8B0000']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.sendBtn}
+                >
+                  <Ionicons name="send" size={18} color="#FFFFFF" />
+                </LinearGradient>
+              )}
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -211,123 +237,184 @@ export default function AssistantScreen({ navigation }) {
 function ThinkingBubble() {
   return (
     <View style={styles.botRow}>
-      <View style={styles.botAvatar}>
+      <View style={styles.botAvatarRing}>
         <LinearGradient colors={['#8B0000', '#A00000']} style={styles.botAvatarInner}>
-          <Ionicons name="car-sport" size={16} color="#FFFFFF" />
+          <Ionicons name="sparkles" size={14} color="#FFFFFF" />
         </LinearGradient>
       </View>
       <View style={[styles.botBubble, styles.thinkingBubble]}>
-        <ActivityIndicator size="small" color="#8B0000" />
-        <Text style={styles.thinkingText}>Thinking…</Text>
+        <View style={styles.typingDots}>
+          <View style={[styles.typingDot, { opacity: 0.35 }]} />
+          <View style={[styles.typingDot, { opacity: 0.6 }]} />
+          <View style={[styles.typingDot, { opacity: 1 }]} />
+        </View>
+        <Text style={styles.thinkingText}>Thinking</Text>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB' },
+  container: { flex: 1, backgroundColor: '#F7F8FA' },
   safe: { flex: 1 },
 
+  // ── Header ───────────────────────────────────────────────────────────
   header: {
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 12, paddingVertical: 10,
+    paddingHorizontal: 12, paddingVertical: 12,
     backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
+    borderBottomWidth: 1, borderBottomColor: '#F0F0F2',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
   backBtn: {
     width: 40, height: 40, borderRadius: 20,
+    backgroundColor: '#F3F4F6',
     justifyContent: 'center', alignItems: 'center',
   },
-  headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
-  headerAvatar: {
-    width: 36, height: 36, borderRadius: 18, overflow: 'hidden',
+  headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, marginLeft: 10 },
+  headerAvatarRing: {
+    width: 44, height: 44, borderRadius: 22,
+    padding: 2.5,
+    backgroundColor: '#FECACA',
+    justifyContent: 'center', alignItems: 'center',
   },
   headerAvatarInner: {
     width: '100%', height: '100%',
+    borderRadius: 20,
     justifyContent: 'center', alignItems: 'center',
   },
-  headerTitle: { fontSize: 15, fontWeight: '700', color: '#1F2937' },
-  headerStatus: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  headerTitle: { fontSize: 16, fontWeight: '700', color: '#1F2937', letterSpacing: -0.2 },
+  headerStatus: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 },
+  headerDotPulse: {
+    width: 10, height: 10, borderRadius: 5,
+    backgroundColor: '#10B98133',
+    justifyContent: 'center', alignItems: 'center',
+  },
   headerDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981' },
-  headerStatusText: { fontSize: 10, color: '#6B7280' },
+  headerStatusText: { fontSize: 11, color: '#6B7280', fontWeight: '600' },
 
   body: { flex: 1 },
-  list: { padding: 12, paddingBottom: 16 },
+  list: { padding: 14, paddingBottom: 18 },
 
-  // Bot message
+  // ── Bot message ──────────────────────────────────────────────────────
   botRow: {
     flexDirection: 'row', alignItems: 'flex-end',
     gap: 8, marginVertical: 6, maxWidth: '90%',
   },
-  botAvatar: {
-    width: 30, height: 30, borderRadius: 15, overflow: 'hidden',
+  botAvatarRing: {
+    width: 32, height: 32, borderRadius: 16,
+    padding: 2,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center', alignItems: 'center',
   },
   botAvatarInner: {
     width: '100%', height: '100%',
+    borderRadius: 14,
     justifyContent: 'center', alignItems: 'center',
   },
   botBubble: {
-    backgroundColor: '#FFFFFF', padding: 12,
-    borderRadius: 14, borderTopLeftRadius: 4,
-    borderWidth: 1, borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14, paddingVertical: 11,
+    borderRadius: 18, borderTopLeftRadius: 4,
+    borderWidth: 1, borderColor: '#F0F0F2',
     maxWidth: '88%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
-  botText: { fontSize: 14, color: '#1F2937', lineHeight: 20 },
+  botText: { fontSize: 14.5, color: '#1F2937', lineHeight: 21 },
 
   thinkingBubble: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  thinkingText: { fontSize: 13, color: '#6B7280', fontStyle: 'italic' },
+  typingDots: { flexDirection: 'row', gap: 3, alignItems: 'center' },
+  typingDot: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: '#8B0000',
+  },
+  thinkingText: { fontSize: 13, color: '#6B7280', fontWeight: '500' },
 
-  // User message
+  // ── User message ─────────────────────────────────────────────────────
   userRow: {
     flexDirection: 'row', justifyContent: 'flex-end',
     marginVertical: 6,
   },
   userBubble: {
-    backgroundColor: '#8B0000', padding: 12,
-    borderRadius: 14, borderTopRightRadius: 4,
+    paddingHorizontal: 14, paddingVertical: 11,
+    borderRadius: 18, borderTopRightRadius: 4,
     maxWidth: '85%',
+    shadowColor: '#8B0000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  userText: { fontSize: 14, color: '#FFFFFF', lineHeight: 20 },
+  userText: { fontSize: 14.5, color: '#FFFFFF', lineHeight: 21, fontWeight: '500' },
 
-  // Suggestion chips
+  // ── Chip rows ────────────────────────────────────────────────────────
   chipsRow: {
-    paddingHorizontal: 10, paddingVertical: 8,
+    paddingHorizontal: 12, paddingVertical: 8,
     gap: 8, flexDirection: 'row',
   },
   chip: {
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1, borderColor: '#FCA5A5',
-    paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 18, marginRight: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1, borderColor: '#FECACA',
+    paddingHorizontal: 14, paddingVertical: 9,
+    borderRadius: 20, marginRight: 8,
+    shadowColor: '#8B0000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
   },
-  chipText: { fontSize: 12, color: '#8B0000', fontWeight: '600' },
+  chipText: { fontSize: 12.5, color: '#8B0000', fontWeight: '600' },
 
-  // Action chip — solid, navigates to a specific screen
   actionChip: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: '#8B0000',
-    paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 18, marginRight: 8,
+    paddingHorizontal: 14, paddingVertical: 9,
+    borderRadius: 20, marginRight: 8,
+    shadowColor: '#8B0000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  actionChipText: { fontSize: 12, color: '#FFFFFF', fontWeight: '700' },
+  actionChipText: { fontSize: 12.5, color: '#FFFFFF', fontWeight: '700' },
 
-  // Input
+  // ── Input ────────────────────────────────────────────────────────────
   inputBar: {
-    flexDirection: 'row', alignItems: 'flex-end', gap: 8,
-    paddingHorizontal: 12, paddingVertical: 8,
+    flexDirection: 'row', alignItems: 'flex-end', gap: 10,
+    paddingHorizontal: 12, paddingVertical: 10,
     backgroundColor: '#FFFFFF',
-    borderTopWidth: 1, borderTopColor: '#E5E7EB',
+    borderTopWidth: 1, borderTopColor: '#F0F0F2',
+  },
+  inputWrap: {
+    flex: 1,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 22,
+    borderWidth: 1, borderColor: '#E5E7EB',
+    paddingHorizontal: 4,
   },
   input: {
-    flex: 1, backgroundColor: '#F3F4F6',
-    borderRadius: 20, paddingHorizontal: 14, paddingVertical: 10,
-    fontSize: 14, color: '#1F2937',
-    maxHeight: 100,
+    fontSize: 14.5, color: '#1F2937',
+    paddingHorizontal: 14, paddingVertical: 11,
+    maxHeight: 110,
+  },
+  sendBtnWrap: {
+    shadowColor: '#8B0000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
   },
   sendBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: '#8B0000',
+    width: 44, height: 44, borderRadius: 22,
     justifyContent: 'center', alignItems: 'center',
   },
-  sendBtnDisabled: { backgroundColor: '#D1D5DB' },
+  sendBtnDisabled: { backgroundColor: '#D1D5DB', shadowOpacity: 0 },
 });

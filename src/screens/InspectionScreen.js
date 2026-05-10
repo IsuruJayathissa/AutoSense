@@ -456,8 +456,9 @@ export default function InspectionScreen({ navigation }) {
 function SummaryStat({ color, value, label }) {
   return (
     <View style={styles.summaryStat}>
-      <View style={[styles.summaryDot, { backgroundColor: color }]} />
-      <Text style={styles.summaryValue}>{value}</Text>
+      <View style={[styles.summaryCircle, { borderColor: color }]}>
+        <Text style={[styles.summaryCircleValue, { color }]}>{value}</Text>
+      </View>
       <Text style={styles.summaryLabel}>{label}</Text>
     </View>
   );
@@ -617,9 +618,14 @@ const styles = StyleSheet.create({
   summarySubtitle: { color: '#FECACA', fontSize: 13, marginTop: 2, marginBottom: 14 },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between' },
   summaryStat: { flex: 1, alignItems: 'center' },
-  summaryDot: { width: 10, height: 10, borderRadius: 5, marginBottom: 6 },
-  summaryValue: { color: '#FFFFFF', fontSize: 22, fontWeight: '800' },
-  summaryLabel: { color: '#FECACA', fontSize: 11, marginTop: 2 },
+  summaryCircle: {
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: '#FFFFFF', borderWidth: 3,
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 6,
+  },
+  summaryCircleValue: { fontSize: 18, fontWeight: '900' },
+  summaryLabel: { color: '#FECACA', fontSize: 11, marginTop: 2, fontWeight: '600' },
 
   card: {
     backgroundColor: '#FFFFFF', borderRadius: 14, padding: 16, marginBottom: 14,
