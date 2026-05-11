@@ -63,18 +63,45 @@ const AT_COMMANDS = {
 //  out which ones respond on this specific vehicle.
 // ─────────────────────────────────────────────────────────────────────────────
 const TOYOTA_DIDS = {
+  // ── Core PIDs (mirror of standard Mode 01) ───────────────────────────────
   RPM:               '22110C', // engine RPM
   COOLANT_TEMP:      '221105', // coolant temp °C
   SPEED:             '22110D', // vehicle speed km/h
   THROTTLE:          '221111', // throttle position %
   ENGINE_LOAD:       '221104', // calculated load %
   INTAKE_TEMP:       '22110F', // intake air temp °C
-  FUEL_RAIL_PRESS:   '221123', // fuel rail pressure
+  FUEL_RAIL_PRESS:   '221123', // fuel rail pressure (actual)
   MAF:               '221110', // mass air flow
   MAP_PRESSURE:      '22110B', // manifold absolute pressure
   BOOST_PRESSURE:    '221432', // boost / turbo (VNT)
   TIMING_ADVANCE:    '22110E', // timing
   CONTROL_VOLTAGE:   '221142', // control module voltage
+
+  // ── 1KD-FTV diesel-specific DIDs (best-effort candidates) ────────────────
+  // These are reverse-engineered from Techstream / public 1KD sources.
+  // Probe in connect() filters out any that don't respond on this ECU.
+  RAIL_PRESS_TARGET: '221122', // common rail pressure commanded (kPa)
+  INJ_QTY_TARGET:    '221127', // target injection quantity (mg/stroke)
+  INJ_QTY_ACTUAL:    '221128', // actual injection quantity (mg/stroke)
+  INJ_CORR_CYL1:     '221129', // injector correction cyl 1
+  INJ_CORR_CYL2:     '22112A', // injector correction cyl 2
+  INJ_CORR_CYL3:     '22112B', // injector correction cyl 3
+  INJ_CORR_CYL4:     '22112C', // injector correction cyl 4
+
+  DPF_DIFF_PRESSURE: '221130', // DPF differential pressure
+  DPF_SOOT_ACCUM:    '221131', // DPF particulate matter accumulation %
+  DPF_TEMP:          '221132', // DPF temperature
+  DPF_REGEN_STATUS:  '221133', // DPF regeneration status flag
+
+  EGR_CMD_POS:       '221140', // EGR valve commanded position %
+  EGR_ACT_POS:       '221141', // EGR valve actual position %
+
+  VNT_CMD_POS:       '221150', // VNT (turbo vane) commanded position %
+  BOOST_TARGET:      '221151', // boost pressure commanded (kPa)
+
+  GLOW_PLUG_STATUS:  '22117C', // glow plug relay (1 = ON)
+  EGT_PRE_DPF:       '221180', // exhaust gas temp pre-DPF °C
+  EGT_POST_DPF:      '221181', // exhaust gas temp post-DPF °C
 };
 
 // Toyota engine-ECU CAN address on 1KD/2KD platforms (11-bit CAN @ 500k)
@@ -566,6 +593,31 @@ class OBDService {
       case TOYOTA_DIDS.FUEL_RAIL_PRESS: return (A * 256 + B) * 10;
       case TOYOTA_DIDS.TIMING_ADVANCE:  return Math.round(A / 2 - 64);
       case TOYOTA_DIDS.CONTROL_VOLTAGE: return parseFloat(((A * 256 + B) / 1000).toFixed(1));
+
+      // ── 1KD-FTV diesel-specific decoders ────────────────────────────────
+      case TOYOTA_DIDS.RAIL_PRESS_TARGET: return (A * 256 + B) * 10;          // kPa
+      case TOYOTA_DIDS.INJ_QTY_TARGET:
+      case TOYOTA_DIDS.INJ_QTY_ACTUAL:    return parseFloat(((A * 256 + B) / 100).toFixed(2)); // mg/stroke
+      case TOYOTA_DIDS.INJ_CORR_CYL1:
+      case TOYOTA_DIDS.INJ_CORR_CYL2:
+      case TOYOTA_DIDS.INJ_CORR_CYL3:
+      case TOYOTA_DIDS.INJ_CORR_CYL4:     return parseFloat(((A - 128) * 0.1).toFixed(2)); // signed mg/stroke
+
+      case TOYOTA_DIDS.DPF_DIFF_PRESSURE: return parseFloat(((A * 256 + B) * 0.01).toFixed(2)); // kPa
+      case TOYOTA_DIDS.DPF_SOOT_ACCUM:    return parseFloat((A * 0.5).toFixed(1));              // %
+      case TOYOTA_DIDS.DPF_TEMP:          return Math.round((A * 256 + B) * 0.1 - 40);          // °C
+      case TOYOTA_DIDS.DPF_REGEN_STATUS:  return A;                                              // raw flag
+
+      case TOYOTA_DIDS.EGR_CMD_POS:
+      case TOYOTA_DIDS.EGR_ACT_POS:
+      case TOYOTA_DIDS.VNT_CMD_POS:       return Math.round((A * 100) / 255);   // %
+
+      case TOYOTA_DIDS.BOOST_TARGET:      return parseFloat(((A * 256 + B) * 0.03125).toFixed(1)); // kPa
+
+      case TOYOTA_DIDS.GLOW_PLUG_STATUS:  return A;                              // 1 = ON
+      case TOYOTA_DIDS.EGT_PRE_DPF:
+      case TOYOTA_DIDS.EGT_POST_DPF:      return Math.round((A * 256 + B) * 0.1 - 40); // °C
+
       default: return A;
     }
   }
@@ -1077,6 +1129,10 @@ class OBDService {
   }
 
   // ── Toyota Mode 22 sensor query ───────────────────────────────────────────
+  // Returns the standard sensor shape plus 1KD-FTV diesel extras
+  // (DPF, EGR, injector corrections, boost target, EGTs, glow plug status).
+  // Every diesel field is only included if the ECU actually replied to that
+  // DID during the connect-time probe.
   async _getToyotaSensorData() {
     const data = {
       rpm: 0, speed: 0, coolantTemp: 0, throttle: 0, fuelLevel: 0,
@@ -1090,7 +1146,8 @@ class OBDService {
       return this._parseToyotaResponse(did, raw);
     };
 
-    const [rpm, speed, coolant, throttle, load, intake, maf, timing, rail, voltage] = await Promise.all([
+    // Core PIDs (fired in parallel — adapter queues internally)
+    const [rpm, speed, coolant, throttle, load, intake, maf, timing, rail, voltage, boostKPa] = await Promise.all([
       queryDID(TOYOTA_DIDS.RPM),
       queryDID(TOYOTA_DIDS.SPEED),
       queryDID(TOYOTA_DIDS.COOLANT_TEMP),
@@ -1101,6 +1158,7 @@ class OBDService {
       queryDID(TOYOTA_DIDS.TIMING_ADVANCE),
       queryDID(TOYOTA_DIDS.FUEL_RAIL_PRESS),
       queryDID(TOYOTA_DIDS.CONTROL_VOLTAGE),
+      queryDID(TOYOTA_DIDS.BOOST_PRESSURE),
     ]);
     if (rpm     !== null) data.rpm = rpm;
     if (speed   !== null) data.speed = speed;
@@ -1111,6 +1169,55 @@ class OBDService {
     if (maf     !== null) data.maf = maf;
     if (timing  !== null) data.timing = timing;
     if (rail    !== null) data.fuelPressure = Math.round(rail / 100); // kPa→useful range
+    if (boostKPa !== null) data.boostPressure = boostKPa;
+
+    // 1KD diesel extras — only included if the ECU actually responded for that DID
+    const [
+      railTarget, injTarget, injActual,
+      inj1, inj2, inj3, inj4,
+      dpfDiff, dpfSoot, dpfTemp, dpfRegen,
+      egrCmd, egrAct,
+      vntCmd, boostTarget,
+      glow, egtPre, egtPost,
+    ] = await Promise.all([
+      queryDID(TOYOTA_DIDS.RAIL_PRESS_TARGET),
+      queryDID(TOYOTA_DIDS.INJ_QTY_TARGET),
+      queryDID(TOYOTA_DIDS.INJ_QTY_ACTUAL),
+      queryDID(TOYOTA_DIDS.INJ_CORR_CYL1),
+      queryDID(TOYOTA_DIDS.INJ_CORR_CYL2),
+      queryDID(TOYOTA_DIDS.INJ_CORR_CYL3),
+      queryDID(TOYOTA_DIDS.INJ_CORR_CYL4),
+      queryDID(TOYOTA_DIDS.DPF_DIFF_PRESSURE),
+      queryDID(TOYOTA_DIDS.DPF_SOOT_ACCUM),
+      queryDID(TOYOTA_DIDS.DPF_TEMP),
+      queryDID(TOYOTA_DIDS.DPF_REGEN_STATUS),
+      queryDID(TOYOTA_DIDS.EGR_CMD_POS),
+      queryDID(TOYOTA_DIDS.EGR_ACT_POS),
+      queryDID(TOYOTA_DIDS.VNT_CMD_POS),
+      queryDID(TOYOTA_DIDS.BOOST_TARGET),
+      queryDID(TOYOTA_DIDS.GLOW_PLUG_STATUS),
+      queryDID(TOYOTA_DIDS.EGT_PRE_DPF),
+      queryDID(TOYOTA_DIDS.EGT_POST_DPF),
+    ]);
+    if (railTarget   !== null) data.fuelRailPressureTarget = Math.round(railTarget / 100);
+    if (injTarget    !== null) data.injectionQtyTarget = injTarget;
+    if (injActual    !== null) data.injectionQtyActual = injActual;
+    if (inj1 !== null || inj2 !== null || inj3 !== null || inj4 !== null) {
+      data.injectorCorrection = {
+        cyl1: inj1, cyl2: inj2, cyl3: inj3, cyl4: inj4,
+      };
+    }
+    if (dpfDiff   !== null) data.dpfDifferentialPressure = dpfDiff;
+    if (dpfSoot   !== null) data.dpfSootAccumulation = dpfSoot;
+    if (dpfTemp   !== null) data.dpfTemperature = dpfTemp;
+    if (dpfRegen  !== null) data.dpfRegenStatus = dpfRegen;
+    if (egrCmd    !== null) data.egrCommanded = egrCmd;
+    if (egrAct    !== null) data.egrActual = egrAct;
+    if (vntCmd    !== null) data.vntCommanded = vntCmd;
+    if (boostTarget !== null) data.boostPressureTarget = boostTarget;
+    if (glow      !== null) data.glowPlugOn = glow === 1;
+    if (egtPre    !== null) data.egtPreDpf = egtPre;
+    if (egtPost   !== null) data.egtPostDpf = egtPost;
 
     // Voltage: prefer ECU value, fall back to ELM hardware voltmeter
     if (voltage !== null && voltage > 8) {

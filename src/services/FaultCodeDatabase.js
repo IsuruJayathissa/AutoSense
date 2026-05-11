@@ -284,6 +284,18 @@ const ALL_BRAND_DBS = [
   ['Ford', FORD_CODES],
 ];
 
+// ── Admin-managed overrides (loaded from Firestore by AdminFaultCodeService) ─
+// Keyed by uppercase code, e.g. { 'P1601': { description, severity, cause, fix, brand } }
+const adminOverrides = new Map();
+
+export function setAdminOverrides(map) {
+  adminOverrides.clear();
+  if (!map) return;
+  for (const [code, info] of Object.entries(map)) {
+    adminOverrides.set(code.toUpperCase(), info);
+  }
+}
+
 /**
  * Look up fault code information
  * @param {string} code - The fault code (e.g., 'P0301')
@@ -292,6 +304,12 @@ const ALL_BRAND_DBS = [
  */
 export function getCodeInfo(code, brand = null) {
   const upperCode = code.toUpperCase();
+
+  // 0. Admin-managed override always wins (lets admins add 1KD-specific codes
+  //    like P1601, P2002 etc. without redeploying the app)
+  if (adminOverrides.has(upperCode)) {
+    return { code: upperCode, ...adminOverrides.get(upperCode) };
+  }
 
   // 1. Check brand-specific DB first
   if (brand) {
@@ -356,4 +374,5 @@ export default {
   getCodeInfo,
   getSupportedBrands,
   getSeverityColor,
+  setAdminOverrides,
 };

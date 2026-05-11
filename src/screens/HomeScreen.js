@@ -17,6 +17,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 import OBDService from '../services/OBDService';
 import MaintenanceService from '../services/MaintenanceService';
+import { isAdminEmail } from '../config/admin';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 60) / 2;
@@ -174,6 +175,16 @@ export default function HomeScreen({ navigation }) {
       screen: 'Settings',
       color: '#8B0000',
     },
+    // Admin-only entry — appears only for emails listed in src/config/admin.js
+    ...(isAdminEmail(auth.currentUser?.email)
+      ? [{
+          id: 'admin',
+          icon: 'shield-checkmark-outline',
+          title: 'Admin Panel',
+          screen: 'Admin',
+          color: '#8B0000',
+        }]
+      : []),
   ];
 
   if (loading) {

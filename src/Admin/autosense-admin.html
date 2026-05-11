@@ -281,9 +281,12 @@
 
     <!-- DASHBOARD -->
     <div class="page active" id="page-dashboard">
-      <div class="page-header">
-        <div class="page-title">Dashboard</div>
-        <div class="page-sub">AutoSense app overview</div>
+      <div class="page-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div class="page-title">Dashboard</div>
+          <div class="page-sub">AutoSense app overview</div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="refresh('dashboard', this)">↻ Refresh</button>
       </div>
       <div class="stat-grid" style="grid-template-columns: repeat(3, 1fr)">
         <div class="stat-card" style="--accent:#8B0000">
@@ -359,7 +362,10 @@
               <option value="">All Brands</option>
             </select>
           </div>
-          <button class="btn btn-red" onclick="openAddVehicle()">+ Add Vehicle</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-outline btn-sm" onclick="refresh('vehicles', this)">↻ Refresh</button>
+            <button class="btn btn-red" onclick="openAddVehicle()">+ Add Vehicle</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -387,7 +393,7 @@
               <option value="action">🔴 Action Needed</option>
             </select>
           </div>
-          <button class="btn btn-outline btn-sm" onclick="loadInspections()">↻ Refresh</button>
+          <button class="btn btn-outline btn-sm" onclick="refresh('inspections', this)">↻ Refresh</button>
         </div>
         <div class="table-wrap">
           <table>
@@ -407,7 +413,10 @@
       <div class="table-card">
         <div class="table-header">
           <div class="table-title">Supported Brands</div>
-          <button class="btn btn-red" onclick="openAddBrand()">+ Add Brand</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-outline btn-sm" onclick="refresh('brands', this)">↻ Refresh</button>
+            <button class="btn btn-red" onclick="openAddBrand()">+ Add Brand</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -439,7 +448,7 @@
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-outline btn-sm" onclick="exportTrainingCSV()">⬇ Export CSV</button>
-            <button class="btn btn-outline btn-sm" onclick="loadTraining()">↻ Refresh</button>
+            <button class="btn btn-outline btn-sm" onclick="refresh('training', this)">↻ Refresh</button>
           </div>
         </div>
         <div class="table-wrap">
@@ -460,7 +469,10 @@
       <div class="table-card">
         <div class="table-header">
           <input class="search-input" id="fault-search" placeholder="Search code (e.g. P0301)..." oninput="filterFaults()"/>
-          <button class="btn btn-red" onclick="openAddFault()">+ Add Code</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-outline btn-sm" onclick="refresh('faultcodes', this)">↻ Refresh</button>
+            <button class="btn btn-red" onclick="openAddFault()">+ Add Code</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
@@ -480,7 +492,7 @@
       <div class="table-card">
         <div class="table-header">
           <div class="table-title">All Maintenance Schedules</div>
-          <button class="btn btn-outline btn-sm" onclick="loadMaintenance()">↻ Refresh</button>
+          <button class="btn btn-outline btn-sm" onclick="refresh('maintenance', this)">↻ Refresh</button>
         </div>
         <div class="table-wrap">
           <table>
@@ -500,7 +512,7 @@
       <div class="table-card">
         <div class="table-header">
           <div class="table-title">Registered Users</div>
-          <button class="btn btn-outline btn-sm" onclick="loadUsers()">↻ Refresh</button>
+          <button class="btn btn-outline btn-sm" onclick="refresh('users', this)">↻ Refresh</button>
         </div>
         <div class="table-wrap">
           <table>
@@ -703,6 +715,44 @@ window.showPage = (name) => {
   items.forEach(item => { if (item.getAttribute('onclick')?.includes(name)) item.classList.add('active'); });
 };
 
+// Refresh helper — runs the matching loader, shows a toast, and gives the
+// clicked button a "Refreshing..." state so the user can see something
+// happened. Pass `this` as the second argument from the inline onclick.
+window.refresh = async (name, btn) => {
+  const map = {
+    dashboard:   () => window.loadDashboard?.(),
+    vehicles:    () => window.loadVehicles?.(),
+    inspections: () => window.loadInspections?.(),
+    brands:      () => window.loadBrands?.(),
+    training:    () => window.loadTraining?.(),
+    faultcodes:  () => window.loadFaults?.(),
+    maintenance: () => window.loadMaintenance?.(),
+    users:       () => window.loadUsers?.(),
+  };
+  const fn = map[name];
+  if (!fn) { showToast(`Unknown page: ${name}`, 'error'); return; }
+
+  const originalText = btn ? btn.innerHTML : null;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '⟳ Refreshing…';
+    btn.style.opacity = '0.7';
+  }
+  try {
+    await fn();
+    showToast(`${name.charAt(0).toUpperCase() + name.slice(1)} refreshed`, 'success');
+  } catch (e) {
+    console.error(`Refresh ${name} failed:`, e);
+    showToast(`Refresh failed: ${e.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalText;
+      btn.style.opacity = '1';
+    }
+  }
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  DASHBOARD
 // ─────────────────────────────────────────────────────────────────────────────
@@ -777,8 +827,9 @@ async function loadDashboard() {
         <td><span class="badge ${badgeClass}">${status}</span></td>
       </tr>`;
     }).join('') || '<tr><td colspan="5"><div class="empty">No inspections yet</div></td></tr>';
-  } catch(e) { console.error(e); }
+  } catch(e) { console.error(e); throw e; }
 }
+window.loadDashboard = loadDashboard;
 
 // Helpers used by inspection rendering
 function tsOf(insp) {
@@ -841,7 +892,7 @@ async function loadVehicles() {
     const brands = [...new Set(allVehicles.map(v => v.brand).filter(Boolean))];
     const sel = document.getElementById('vehicle-brand-filter');
     sel.innerHTML = '<option value="">All Brands</option>' + brands.map(b => `<option>${b}</option>`).join('');
-  } catch(e) { showToast('Error loading vehicles', 'error'); }
+  } catch(e) { showToast('Error loading vehicles', 'error'); throw e; }
 }
 window.loadVehicles = loadVehicles;
 
@@ -969,6 +1020,7 @@ async function loadInspections() {
     console.warn('loadInspections error:', e.message);
     document.getElementById('inspections-body').innerHTML =
       `<tr><td colspan="10"><div class="empty">Failed to load: ${e.message}</div></td></tr>`;
+    throw e;
   }
 }
 window.loadInspections = loadInspections;
@@ -1251,7 +1303,7 @@ async function loadBrands() {
     // Update training filter
     const sel = document.getElementById('training-brand-filter');
     sel.innerHTML = '<option value="">All Brands</option>' + allBrands.map(b => `<option>${b.name}</option>`).join('');
-  } catch(e) { console.error(e); }
+  } catch(e) { console.error(e); throw e; }
 }
 window.loadBrands = loadBrands;
 
@@ -1312,7 +1364,7 @@ async function loadTraining() {
     allTraining = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     allTraining.sort((a,b) => (b.createdAt?.toMillis?.()??0) - (a.createdAt?.toMillis?.()??0));
     renderTraining(allTraining);
-  } catch(e) { showToast('Error loading training data', 'error'); }
+  } catch(e) { showToast('Error loading training data', 'error'); throw e; }
 }
 window.loadTraining = loadTraining;
 
@@ -1384,7 +1436,7 @@ async function loadFaults() {
     }
     allFaults = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderFaults(allFaults);
-  } catch(e) { console.error(e); }
+  } catch(e) { console.error(e); throw e; }
 }
 window.loadFaults = loadFaults;
 
@@ -1467,7 +1519,7 @@ async function loadMaintenance() {
       });
     });
     body.innerHTML = rows.join('') || '<tr><td colspan="6"><div class="empty">No items found</div></td></tr>';
-  } catch(e) { console.error(e); }
+  } catch(e) { console.error(e); throw e; }
 }
 window.loadMaintenance = loadMaintenance;
 
@@ -1492,7 +1544,7 @@ async function loadUsers() {
           <button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}','${u.vehicleNumber}')">Remove</button>
         </td>
       </tr>`).join('');
-  } catch(e) { console.error(e); }
+  } catch(e) { console.error(e); throw e; }
 }
 window.loadUsers = loadUsers;
 

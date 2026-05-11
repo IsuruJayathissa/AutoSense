@@ -42,7 +42,6 @@ const detectEngineState = (history) => {
 export default function DashboardScreen({ navigation }) {
   const [obdConnected, setObdConnected] = useState(OBDService.isConnected);
   const [engineState, setEngineState] = useState('unknown');
-  const [demoMode, setDemoModeUI] = useState(OBDService.demoMode);
 
   const [sensorData, setSensorData] = useState({
     rpm: 0,
@@ -69,7 +68,7 @@ export default function DashboardScreen({ navigation }) {
       }
     });
 
-    if (OBDService.isConnected || OBDService.demoMode) startRealDataPolling();
+    if (OBDService.isConnected) startRealDataPolling();
 
     return () => {
       unsubscribe();
@@ -86,19 +85,6 @@ export default function DashboardScreen({ navigation }) {
         setEngineState(detectEngineState(historyRef.current));
       }
     }, 2000);
-  };
-
-  const toggleDemoMode = () => {
-    const next = !OBDService.demoMode;
-    OBDService.setDemoMode(next);
-    setDemoModeUI(next);
-    if (next) {
-      // Clear stale soft-success state so the engine-off banner doesn't show in demo
-      OBDService.lastConnectError = null;
-      historyRef.current = [];
-      setEngineState('running');
-      if (!intervalRef.current) startRealDataPolling();
-    }
   };
 
 
@@ -273,18 +259,14 @@ export default function DashboardScreen({ navigation }) {
           
           <Text style={styles.headerTitle}>Live Dashboard</Text>
 
-          <TouchableOpacity
-            onPress={toggleDemoMode}
-            activeOpacity={0.7}
-            style={[styles.statusBadge, {
-              backgroundColor: (demoMode || obdConnected) ? '#10B981' : '#F59E0B',
-            }]}
-          >
+          <View style={[styles.statusBadge, {
+            backgroundColor: obdConnected ? '#10B981' : '#9CA3AF',
+          }]}>
             <View style={styles.statusDot} />
             <Text style={styles.statusBadgeText}>
-              {(demoMode || obdConnected) ? 'LIVE' : 'SIM'}
+              {obdConnected ? 'LIVE' : 'OFFLINE'}
             </Text>
-          </TouchableOpacity>
+          </View>
         </View>
 
         <ScrollView 
@@ -292,7 +274,7 @@ export default function DashboardScreen({ navigation }) {
           showsVerticalScrollIndicator={false}
         >
           {/* Connection Warning */}
-          {(!obdConnected && !demoMode) && (
+          {!obdConnected && (
             <TouchableOpacity
               style={styles.warningCard}
               onPress={() => navigation.navigate('OBDConnection')}
@@ -314,8 +296,8 @@ export default function DashboardScreen({ navigation }) {
             </TouchableOpacity>
           )}
 
-          {/* Engine state warnings — only when connected and not in demo */}
-          {!demoMode && obdConnected && engineState === 'off' && (
+          {/* Engine state warnings — only when connected */}
+          {obdConnected && engineState === 'off' && (
             <View style={styles.warningCard}>
               <LinearGradient
                 colors={['#F59E0B', '#D97706']}
@@ -334,28 +316,23 @@ export default function DashboardScreen({ navigation }) {
             </View>
           )}
 
-          {!demoMode && obdConnected && engineState === 'unsupported' && (
-            <TouchableOpacity
-              style={styles.warningCard}
-              onPress={toggleDemoMode}
-              activeOpacity={0.85}
-            >
+          {obdConnected && engineState === 'unsupported' && (
+            <View style={styles.warningCard}>
               <LinearGradient
-                colors={['#10B981', '#059669']}
+                colors={['#6B7280', '#4B5563']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={styles.warningGradient}
               >
-                <Ionicons name="play-circle" size={24} color="#FFFFFF" />
+                <Ionicons name="alert-circle" size={24} color="#FFFFFF" />
                 <View style={styles.warningTextContainer}>
-                  <Text style={styles.warningTitle}>Tap to Start Live Data</Text>
+                  <Text style={styles.warningTitle}>Live Data Not Supported</Text>
                   <Text style={styles.warningSubtitle}>
-                    Begin streaming sensor readings from your vehicle.
+                    This ECU does not expose Mode 01 live PIDs over OBD-II.
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
               </LinearGradient>
-            </TouchableOpacity>
+            </View>
           )}
 
           {/* Real-time Indicator */}

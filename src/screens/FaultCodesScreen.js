@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import OBDService from '../services/OBDService';
 import { getCodeInfo, getSeverityColor } from '../services/FaultCodeDatabase';
+import AdminFaultCodeService from '../services/AdminFaultCodeService';
 import { auth, db } from '../config/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
@@ -22,6 +23,9 @@ export default function FaultCodesScreen({ navigation }) {
 
   useEffect(() => {
     loadVehicleBrand();
+    // Pull any admin-managed fault codes (e.g. 1KD-specific) so the scanner
+    // can surface descriptions for codes that aren't in the static DB.
+    AdminFaultCodeService.refreshOverrides().catch(() => {});
     const unsubscribe = OBDService.onConnectionChange(setObdConnected);
     return unsubscribe;
   }, []);
@@ -121,11 +125,11 @@ export default function FaultCodesScreen({ navigation }) {
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Fault Codes</Text>
           <View style={[styles.statusBadge, {
-            backgroundColor: obdConnected ? '#10B981' : '#F59E0B'
+            backgroundColor: obdConnected ? '#10B981' : '#9CA3AF'
           }]}>
             <View style={styles.statusDot} />
             <Text style={styles.statusBadgeText}>
-              {obdConnected ? 'LIVE' : 'SIM'}
+              {obdConnected ? 'LIVE' : 'OFFLINE'}
             </Text>
           </View>
         </View>
