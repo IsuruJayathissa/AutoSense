@@ -48,6 +48,7 @@ export default function HomeScreen({ navigation }) {
 
       if (userVehicleDoc.exists()) {
         const vehicleId = userVehicleDoc.data().vehicleId;
+        if (!vehicleId) return;
         const vehicleDoc = await getDoc(doc(db, 'vehicles', vehicleId));
 
         if (vehicleDoc.exists()) {
